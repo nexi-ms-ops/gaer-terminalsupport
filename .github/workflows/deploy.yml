@@ -3,9 +3,8 @@ name: deploy
 # docker compose. deploy/deploy.sh migrates, starts the new version and goes back to the previous
 # one if /health does not answer.
 
+# This instance deploys to AKS (aks-main.yml / aks-canary.yml); the UpCloud path is kept for manual use only.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency: deploy-main

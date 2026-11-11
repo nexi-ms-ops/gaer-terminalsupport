@@ -57,7 +57,8 @@ use `MAIL_PROVIDER=console` (and `SMS_PROVIDER=console`).
 | `web/src/` | `pages/` app · `admin-app/` the standalone /admin app (own entry `web/admin.html`, spec in `specs/admin-app/`) · `features.tsx` FeatureGate · `mobile/` /m · `extension/` /extension · `office/` /office-addin · `bridge/` postMessage clients |
 | `extension/` | MV3 browser extension (side panel) |
 | `deploy/` | `deploy.sh` (on the server), `compose.yml` (prod stack: Postgres, app, NATS, cloudflared), `nats.conf` (NATS + JetStream on the `nats` volume), `postgres-init.sh`, `.env.example`, `app.env.example` · `mail/` the Stalwart mail server on UpCloud (Terraform, `config.toml`, runbook) |
-| `.github/workflows/` | `test.yml` (PRs), `deploy.yml` (push to main → prod) |
+| `.github/workflows/` | `test.yml` (PRs), `aks-main.yml` / `aks-canary.yml` (push to main / canary → AKS msops1 via `aks-deploy.yml`), `deploy.yml` (UpCloud, manual only) |
+| `deploy/aks/` | Kustomize manifests for AKS: `base/` + `overlays/main` and `overlays/canary`; settings in the secret `gaer-env` (see its README) |
 | `mobile/` | Expo app (iOS + Android): native login, then `/m` in a WebView — spec in `specs/mobile/` |
 | `server/app/mcp/` | MCP servers: `/mcp` (appen, as the user) and `/mcp/admin` (admin, drafts) — spec in `specs/mcp/` |
 | `server/app/access.py`, `mcp/toolmap.py` | the endpoint → tool map (Code and Data tools) governed from /admin/data, internal/external users, MCP access requests with approval from a list or an e-mail link — `specs/mcp/ACCESS.md` |

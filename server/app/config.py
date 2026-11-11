@@ -92,8 +92,14 @@ class Settings:
     lettermint_team_token: str | None = field(default_factory=lambda: _env("LETTERMINT_TEAM_TOKEN"))
     lettermint_api_url: str = field(default_factory=lambda: _env("LETTERMINT_API_URL", "https://api.lettermint.co/v1"))
 
-    # Object Storage: "s3" (OVHcloud Object Storage, MinIO locally) or "memory" (tests)
+    # Object Storage: "s3" (OVHcloud Object Storage, MinIO locally), "azure" (Azure Blob Storage) or "memory" (tests)
     storage_backend: str = field(default_factory=lambda: _env("STORAGE_BACKEND", "s3"))
+    # Azure Blob Storage: a connection string, or account name + key. The container defaults to S3_BUCKET.
+    azure_storage_connection_string: str | None = field(
+        default_factory=lambda: _env("AZURE_STORAGE_CONNECTION_STRING"))
+    azure_storage_account: str | None = field(default_factory=lambda: _env("AZURE_STORAGE_ACCOUNT"))
+    azure_storage_key: str | None = field(default_factory=lambda: _env("AZURE_STORAGE_KEY"))
+    azure_storage_container: str | None = field(default_factory=lambda: _env("AZURE_STORAGE_CONTAINER"))
     s3_endpoint: str | None = field(default_factory=lambda: _env("S3_ENDPOINT"))
     s3_region: str = field(default_factory=lambda: _env("S3_REGION", "gra"))
     s3_bucket: str = field(default_factory=lambda: _env("S3_BUCKET", "gaer"))
