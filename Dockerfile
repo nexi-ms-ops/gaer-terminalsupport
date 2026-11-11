@@ -5,7 +5,8 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
-RUN npm run build
+# Without the app-map --check of npm run build: it reads files outside web/ and already runs in test.yml
+RUN npx tsc -b && npx vite build
 
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 STATIC_DIR=/app/web/dist
