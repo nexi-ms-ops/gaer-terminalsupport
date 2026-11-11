@@ -202,8 +202,11 @@ class AzureBlobStorage:
     part_etags = False
 
     def __init__(self):
+        import logging
+
         from azure.storage.blob import BlobServiceClient
 
+        logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
         s = config.settings
         if s.azure_storage_connection_string:
             self.service = BlobServiceClient.from_connection_string(s.azure_storage_connection_string)
