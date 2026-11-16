@@ -32,6 +32,9 @@ class Settings:
     rp_name: str = field(default_factory=lambda: _env("RP_NAME", "Tørgær"))
     origin: str = field(default_factory=lambda: _env("ORIGIN", "http://localhost:5173"))
 
+    # License key from happymates.ai (a JWT, checked in app.license). Its statement goes into every /w page.
+    license_key: str | None = field(default_factory=lambda: _env("LICENSE_KEY"))
+
     # Optional: the only e-mail address (or, with SMS login, phone number) that may become the first admin.
     # Without them, whoever logs in first on a new instance becomes super admin. Set one in production.
     bootstrap_admin_email: str | None = field(default_factory=lambda: _env("BOOTSTRAP_ADMIN_EMAIL"))
@@ -57,6 +60,12 @@ class Settings:
     # /admin: a second factor (or a grace login) counts for this long; security actions need one within STEPUP_MINUTES.
     admin_mfa_hours: int = field(default_factory=lambda: _int("ADMIN_MFA_HOURS", 12))
     stepup_minutes: int = field(default_factory=lambda: _int("STEPUP_MINUTES", 15))
+    # YubiKey attestation (app.yubikey): Yubico's root certificates (PEM, a file path or the PEM itself) from
+    # https://developers.yubico.com/PKI/. With them a key's attestation chain is verified ('verified'); without them a
+    # key only counts as a YubiKey when its attestation is signed by a certificate that names Yubico ('issuer').
+    yubico_roots: str | None = field(default_factory=lambda: _env("YUBICO_ROOTS"))
+    # How long a YubiKey link from /admin (POST /api/admin/users/{id}/yubikey/link) is valid.
+    yubikey_link_hours: int = field(default_factory=lambda: _int("YUBIKEY_LINK_HOURS", 24))
     # Captcha on POST /api/auth/otp/start (account creation and login with a code): "pow" (proof of work, no third
     # party) or "off". CAPTCHA_MAX_NUMBER sets the work: the browser needs about half as many SHA-256 hashes.
     captcha: str = field(default_factory=lambda: _env("CAPTCHA", "pow"))
@@ -117,6 +126,9 @@ class Settings:
     unzip_max_files: int = field(default_factory=lambda: _int("UNZIP_MAX_FILES", 5000))
     unzip_max_mb: int = field(default_factory=lambda: _int("UNZIP_MAX_MB", 10240))
     download_link_seconds: int = field(default_factory=lambda: _int("DOWNLOAD_LINK_SECONDS", 300))
+    # Data export and import (/admin/data/transfer): the largest package, built or uploaded. An import package goes from
+    # the browser straight to Object Storage (like DIRECT_UPLOAD), so Cloudflare's 100 MB limit does not apply.
+    transfer_max_mb: int = field(default_factory=lambda: _int("TRANSFER_MAX_MB", 5120))
 
     # Set to 1 when running behind the proxy in deploy/ (cloudflared), so client IPs come from X-Forwarded-For.
     trust_proxy: bool = field(default_factory=lambda: _env("TRUST_PROXY", "0") == "1")
@@ -179,6 +191,21 @@ class Settings:
     events_stream_max_mb: int = field(default_factory=lambda: _int("EVENTS_STREAM_MAX_MB", 1024))
     events_rules_seconds: float = field(default_factory=lambda: float(_env("EVENTS_RULES_SECONDS", "5")))
 
+    # Gær Developer (specs/developer/DATA.md, RUNTIME.md). All optional: without them everything runs in this database.
+    # ANALYTICS_DATABASE_URL: where snapshots (schema `snapshots`) and foreign tables live (gaer_analytics); default this
+    # database. PIPELINE_DATABASE_URL: the role pipelines write snapshots with. DEV_FDW_ADMIN_URL: a role that may create
+    # foreign servers, user mappings and import foreign schemas (default MIGRATION_DATABASE_URL in the same database).
+    analytics_database_url: str | None = field(default_factory=lambda: _env("ANALYTICS_DATABASE_URL"))
+    pipeline_database_url: str | None = field(default_factory=lambda: _env("PIPELINE_DATABASE_URL"))
+    dev_fdw_admin_url: str | None = field(default_factory=lambda: _env("DEV_FDW_ADMIN_URL"))
+    ingest_status_table: str = field(default_factory=lambda: _env("INGEST_STATUS_TABLE", "ingest.load_status"))
+    pipeline_preview_rows: int = field(default_factory=lambda: _int("PIPELINE_PREVIEW_ROWS", 20))
+    pipeline_preview_timeout_ms: int = field(default_factory=lambda: _int("PIPELINE_PREVIEW_TIMEOUT_MS", 5000))
+    # REDIS_URL (redis://[:password@]host:port/db): cache, rate limits and idempotency keys. Without it they live in
+    # Postgres (dev_cache, dev_rate_buckets, dev_idempotency) behind the same interface (app/devkit/cache.py).
+    redis_url: str | None = field(default_factory=lambda: _env("REDIS_URL"))
+    dev_cache_max_entries: int = field(default_factory=lambda: _int("DEV_CACHE_MAX_ENTRIES", 20000))
+
     # Mail, calendar and contacts (specs/mail): Stalwart holds the mailboxes, Lettermint relays all outbound mail.
     # MAILBOX_BACKEND: "off" (the module answers "not set up"), "stalwart", or "memory" (development and tests).
     mailbox_backend: str = field(default_factory=lambda: _env("MAILBOX_BACKEND", "off"))
@@ -201,6 +228,10 @@ class Settings:
     # the retention job when archive export is on, and the nightly calendar/contacts backup.
     mail_archive_prefix: str = field(default_factory=lambda: _env("MAIL_ARCHIVE_PREFIX", "mail-archive/"))
     mail_backup_prefix: str = field(default_factory=lambda: _env("MAIL_BACKUP_PREFIX", "mail-backup/"))
+
+    # Hosts that redirect to ORIGIN (app/canonical_host.py): aliases of the primary domain, comma separated.
+    redirect_hosts: tuple[str, ...] = field(default_factory=lambda: tuple(
+        h.strip().lower().rstrip(".") for h in (_env("REDIRECT_HOSTS", "") or "").split(",") if h.strip()))
 
     @property
     def is_production(self) -> bool:

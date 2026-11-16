@@ -11,7 +11,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from app import config
+from app import config, integrations
 
 # Replaced in tests with an httpx.MockTransport.
 transport: httpx.AsyncBaseTransport | None = None
@@ -124,16 +124,17 @@ async def fetch(endpoint: str, params: dict[str, str] | None = None) -> tuple[in
     clean = check_params(endpoint, params or {})
     url = f"{base.rstrip('/')}/{endpoint}"
     try:
-        async with httpx.AsyncClient(transport=transport, timeout=config.settings.nats_monitor_timeout) as client:
+        async with httpx.AsyncClient(transport=transport, timeout=config.settings.nats_monitor_timeout,
+                                     event_hooks=integrations.hooks("nats")) as client:
             r = await client.get(url, params=clean)
     except httpx.HTTPError as e:
-        raise MonitorError(502, f"NATS svarer ikke ({type(e).__name__})")
+        raise MonitorError(424, f"NATS svarer ikke ({type(e).__name__})")
     if r.status_code >= 400 and not (endpoint == "healthz" and r.status_code == 503):
-        raise MonitorError(502, f"NATS svarede {r.status_code} på /{endpoint}")
+        raise MonitorError(424, f"NATS svarede {r.status_code} på /{endpoint}")
     try:
         data = r.json()
     except ValueError:
-        raise MonitorError(502, f"NATS svarede ikke med JSON på /{endpoint}")
+        raise MonitorError(424, f"NATS svarede ikke med JSON på /{endpoint}")
     if not isinstance(data, dict):
         data = {"value": data}
     return r.status_code, scrub(data)

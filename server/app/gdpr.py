@@ -11,11 +11,16 @@ from datetime import datetime
 
 from fastapi import HTTPException
 
-from app import db, jobs, retention, uploads, webhooks
+from app import datastore, db, jobs, retention, secret_store, uploads, webhooks
 from app import meta as meta_tree
 from app.logs import RequestMeta, audit
 from app.security import phone_hash
 from app.storage import get_storage
+
+
+# Rows in data_transfer_changes about one user (three times the user id as text).
+TRANSFER_CHANGES_OF_USER = """(table_name = 'users' and row_key->>'id' = %s) or before->>'user_id' = %s
+                              or before->>'owner_id' = %s"""
 
 
 async def build_user_export(conn, user_id: int) -> dict:
@@ -24,8 +29,8 @@ async def build_user_export(conn, user_id: int) -> dict:
         return await db.fetch_all(conn, sql, params)
 
     user = await db.fetch_one(conn, """select id, email, phone, display_name, locale, time_zone, role, super_admin, admin_roles,
-                                              mfa_required, grace_logins_used, blocked_at, audience, created_at, updated_at,
-                                              last_login_at, avatar_file_id
+                                              mfa_required, yubikey_required, created_by, grace_logins_used, blocked_at,
+                                              audience, created_at, updated_at, last_login_at, avatar_file_id
                                        from users where id = %s""", (user_id,))
     if user is None:
         raise HTTPException(404, "Brugeren findes ikke")
@@ -34,12 +39,21 @@ async def build_user_export(conn, user_id: int) -> dict:
     return {
         "generated_at": datetime.now().astimezone().isoformat(),
         "user": user,
-        "passkeys": await rows("select id, name, kind, created_at, last_used_at from passkeys where user_id = %s", user_id),
+        "passkeys": await rows("""select id, name, kind, yubikey, attestation, enrolled_by, shipped_at, created_at, last_used_at
+                                  from passkeys where user_id = %s""", user_id),
+        # YubiKey links an admin sent (only that they were sent and used, never the token).
+        "yubikey_enrollments": await rows("""select created_at, expires_at, used_at, created_by from yubikey_enrollments
+                                             where user_id = %s order by created_at""", user_id),
         # Authenticator apps: only that they exist, never the secret.
+        # Logins at other providers you connected (Microsoft, Google, SAML …): which account there, never a token.
+        "login_identities": await rows("""select p.name as provider, p.kind, i.subject, i.email, i.linked_via, i.created_at,
+                                                 i.last_used_at
+                                          from user_identities i join login_providers p on p.id = i.provider_id
+                                          where i.user_id = %s order by i.created_at""", user_id),
         "totp_factors": await rows("""select id, name, created_at, confirmed_at, last_used_at from totp_factors
                                       where user_id = %s order by created_at""", user_id),
         "sessions": await rows("""select created_at, last_seen_at, expires_at, revoked_at, host(ip) as ip, user_agent,
-                                         mfa_at
+                                         mfa_at, yubikey_at
                                   from sessions where user_id = %s order by created_at""", user_id),
         "files": await rows("""select id, filename, folder, content_type, size_bytes, kind, created_at, updated_at
                                from files where user_id = %s order by created_at""", user_id),
@@ -97,23 +111,91 @@ async def build_user_export(conn, user_id: int) -> dict:
                                                 where s.user_id = %s order by c.name""", user_id),
         "mail_availability": await rows("""select publish, working_hours, timezone, updated_at from mail_availability
                                            where user_id = %s""", user_id),
+        # Gær Developer: ownership (RACI), approvals given and messages.
+        "developer_roles": await rows("""select a.type, a.slug, a.name, r.role from dev_artifact_roles r
+                                          join dev_artifacts a on a.id = r.artifact_id where r.user_id = %s
+                                          order by a.type, a.slug, r.role""", user_id),
+        "developer_approvals": await rows("""select a.slug, v.major, v.minor, v.patch, p.role, p.decision, p.note, p.decided_at
+                                              from dev_artifact_approvals p join dev_artifact_versions v on v.id = p.version_id
+                                              join dev_artifacts a on a.id = v.artifact_id where p.user_id = %s
+                                              order by p.id""", user_id),
+        "developer_notifications": await rows("""select kind, title, body, link, created_at, read_at from dev_notifications
+                                                  where user_id = %s order by id""", user_id),
+        "developer_api_calls": await rows("""select ts, api, major, method, path, status from dev_api_log
+                                              where user_id = %s order by id""", user_id),
+        "groups": await rows("""select g.name, g.slug, m.role, m.added_at from group_members m join groups g on g.id = m.group_id
+                                where m.user_id = %s order by g.name""", user_id),
+        # The secret manager ("vault_*", so no export ever contains the word of the TOTP check): roles and access, never a value.
+        "vault_roles": await rows("""select s.name, s.environment, g.name as "group", r.role, r.added_at from secret_raci r
+                                      join secrets s on s.id = r.secret_id join groups g on g.id = s.group_id
+                                      where r.user_id = %s order by s.name, r.role""", user_id),
+        "vault_access_requests": await rows("""select s.name as item, q.level, q.days, q.reason, q.status, q.created_at,
+                                                       q.decided_at from secret_access_requests q
+                                                join secrets s on s.id = q.secret_id
+                                                where q.requester_id = %s or q.grantee_user_id = %s
+                                                order by q.created_at""", user_id, user_id),
+        "vault_approvals": await rows("""select s.name as item, a.roles, a.decision, a.note, a.decided_at
+                                          from secret_approvals a join secret_access_requests q on q.id = a.request_id
+                                          join secrets s on s.id = q.secret_id where a.approver_id = %s
+                                          order by q.created_at""", user_id),
+        "vault_grants": await rows("""select s.name as item, gr.level, gr.granted_at, gr.expires_at, gr.ended_at,
+                                              gr.ended_reason from secret_grants gr join secrets s on s.id = gr.secret_id
+                                       where gr.user_id = %s order by gr.granted_at""", user_id),
+        # Datalager: personal collections and namespaces with every item, roles and approvals in group ones.
+        **(await datastore.export_for(conn, user_id)),
         "mail_app_passwords": await rows("""select name, created_at, last_used_at, revoked_at from mail_app_passwords
                                             where user_id = %s order by created_at""", user_id),
         # Mail the app sent to you (login codes, GDPR and access links): status only, recipient as a hash.
         "outbound_mail": await rows("""select o.purpose, o.subject, o.status, o.status_source, o.status_changed_at, o.created_at
                                        from outbound_mail o where o.user_id = %s or o.recipient_hash = %s
                                        order by o.created_at""", user_id, phone_hash(user["email"])),
+        # Beskeder: what the administration sent you, your replies and theirs, how you want to be told, SMS to you.
+        "messages_inbox": await rows("""select b.id, b.title, b.body, d.delivered_at, d.read_at
+                                        from message_deliveries d join message_broadcasts b on b.id = d.broadcast_id
+                                        where d.user_id = %s and d.channel = 'app' order by d.created_at""", user_id),
+        "messages_deliveries": await rows("""select broadcast_id, channel, status, reason, error, created_at, sent_at
+                                             from message_deliveries where user_id = %s and channel <> 'app'
+                                             order by created_at""", user_id),
+        "messages_replies": await rows("""select c.broadcast_id, m.from_admin, m.body, m.created_at
+                                          from conversation_messages m join conversations c on c.id = m.conversation_id
+                                          where c.user_id = %s order by m.created_at""", user_id),
+        "messages_written_as_admin": await rows("""select conversation_id, body, created_at from conversation_messages
+                                                   where author_id = %s and from_admin order by created_at""", user_id),
+        "messages_broadcasts_sent": await rows("""select id, title, body, audience_label, total, created_at
+                                                  from message_broadcasts where actor_id = %s order by created_at""", user_id),
+        "conversations": await rows("""select c.id, c.kind, m.joined_at, m.last_read_at from conversation_members m
+                                       join conversations c on c.id = m.conversation_id where m.user_id = %s""", user_id),
+        "conversation_messages": await rows("""select x.conversation_id, c.kind, x.body, x.created_at, x.removed_at
+                                               from conversation_messages x join conversations c on c.id = x.conversation_id
+                                               where x.author_id = %s and c.kind in ('instance', 'direct')
+                                               order by x.created_at""", user_id),
+        "message_reports": await rows("""select message_id, reason, details, status, created_at, reviewed_at
+                                         from message_reports where reporter_id = %s order by created_at""", user_id),
+        "user_blocks": await rows("""select blocked_id, created_at from user_blocks where blocker_id = %s""", user_id),
+        "notification_prefs": await rows("""select sms, sms_consent_at, mail, updated_at from notification_prefs
+                                            where user_id = %s""", user_id),
+        "sms_messages": await rows("""select to_phone, body, purpose, segments, status, created_at, sent_at
+                                      from sms_messages where user_id = %s order by created_at""", user_id),
         "mail_events": await rows("""select e.type, e.message_id, e.from_address, e.recipient_domain, e.count, e.at
                                      from mail_events e join mailboxes m on m.id = e.mailbox_id
                                      where m.owner_id = %s order by e.at limit 50000""", user_id),
-        "meta_private_nodes": await rows("""select id, path, label, description, archived_at, created_at, updated_at
-                                            from meta_nodes where owner_id = %s order by path""", user_id),
+        "meta_private_nodes": await rows("""select id, path, label, labels, description, sort_key, child_sort, archived_at,
+                                            created_at, updated_at from meta_nodes where owner_id = %s order by path""", user_id),
         "meta_objects_created": await rows("""select id, kind, ref, title, description, created_at from meta_objects
                                               where created_by = %s order by id""", user_id),
         "meta_tags_set": await rows("""select a.object_id, n.path, a.created_at from meta_assignments a
                                        join meta_nodes n on n.id = a.node_id where a.created_by = %s order by a.created_at""", user_id),
         "meta_nodes_created": await rows("""select id, path, label, created_at from meta_nodes
                                             where created_by = %s and owner_id is null order by path""", user_id),
+        "mapper_titles": await rows("""select t.object_id, o.ref, t.title, t.updated_at from mapper_titles t
+                                       join meta_objects o on o.id = t.object_id where t.user_id = %s order by t.object_id""", user_id),
+        "mapper_pins": await rows("""select p.node_id, n.path, p.created_at from mapper_pins p join meta_nodes n on n.id = p.node_id
+                                     where p.user_id = %s order by p.created_at""", user_id),
+        "mapper_folder_settings": await rows("""select s.node_id, n.path, s.shortcut_sort, s.layout, s.updated_at
+                                                from mapper_folder_settings s join meta_nodes n on n.id = s.node_id
+                                                where s.user_id = %s order by n.path""", user_id),
+        "mapper_views": await rows("""select id, name, shared, spec, created_at, updated_at from mapper_views
+                                      where owner_id = %s order by id""", user_id),
         # TAS (the terminal simulator): documents they last changed and images they uploaded; both stay, unlinked, on erasure.
         "tas_docs_changed": await rows("""select collection, id, updated_at from tas_docs where updated_by = %s
                                           order by collection, id""", user_id),
@@ -163,6 +245,16 @@ async def build_user_export(conn, user_id: int) -> dict:
                                  user_id),
         "ai_budget_alerts": await rows("""select month, kind, pct, used, limit_tokens, created_at, mailed_at from ai_budget_alerts
                                           where user_id = %s order by created_at""", user_id),
+        # Copies an import keeps for UNDO_DAYS so it can be undone (the user's row or rows they own, as they were).
+        "data_transfer_undo": await rows(f"""select table_name, op, before, created_at from data_transfer_changes
+                                             where {TRANSFER_CHANGES_OF_USER} order by id""", *[str(user_id)] * 3),
+        # Action-studie: approvals they were asked for in a flow, and how they answered (never the flow's data).
+        "flow_approvals": await rows("""select ap.title, ap.status, ap.created_at, ap.decided_at, ap.expires_at,
+                                               coalesce(ap.decided_by = %s, false) as decided_by_me, ap.comment, a.name as flow
+                                        from dev_flow_approvals ap join dev_flow_runs r on r.id = ap.run_id
+                                        join dev_artifacts a on a.id = r.artifact_id
+                                        where %s = any(ap.approvers) or ap.decided_by = %s order by ap.created_at""",
+                                     user_id, user_id, user_id),
         "analytics_events": await rows("""select ts, kind, path, referrer, device, browser from analytics_events
                                           where user_id = %s or visitor_id = any(%s) order by ts limit 50000""",
                                        user_id, visitor_ids),
@@ -171,7 +263,7 @@ async def build_user_export(conn, user_id: int) -> dict:
 
 README = """Indsigt i dine data
 
-data.json   alt, vi har gemt om dig: bruger og profil, passkeys og sikkerhedsnøgler, godkendelsesapps
+data.json   alt, vi har gemt om dig: bruger og profil, passkeys og sikkerhedsnøgler, forbundne logins, godkendelsesapps
             (uden den hemmelige nøgle), sessioner, klip, filer (oversigt), filer du har lagt i /shared
             (kun oversigt), hvem du har delt dit område med og hvis områder du har adgang til, tilladte domæner,
             din postkasse (adresse, aliasser, fælles postkasser, afsenderidentiteter, kalendere og adressebøger
@@ -228,11 +320,15 @@ async def ensure_can_erase(conn, user_id: int) -> dict:
 
 async def erase_user(user_id: int, *, actor_id: int | None, meta: RequestMeta, reason: str,
                      gdpr_request: int | None = None) -> dict:
-    """The right to be forgotten. Deletes the user (passkeys, authenticator apps, sessions, clips, domain consents, AI usage,
-    AI budgets and their alerts, one-time codes, feature level, review sessions and notes, their private tree (meta_nodes with owner_id; shared nodes they made keep created_by = null), their test accounts, access to
-    and from their area (/user), adoption visits, nudges and journey roles, Viden conversations and agent memberships
+    """The right to be forgotten. Deletes the user (passkeys, authenticator apps, linked logins at providers, sessions, clips, domain consents, AI usage,
+    AI budgets and their alerts, one-time codes, feature level, review sessions and notes, their private tree (meta_nodes with owner_id; shared nodes they made keep created_by = null) and Mapper's titles, pins and views (shared views too), their test accounts, access to
+    and from their area (/user), adoption visits, nudges and journey roles, group memberships and their roles, requests, approvals and grants
+    for secrets (secrets where they were A are marked as without accountable person), their personal collections and namespaces in the data store (group ones lose them as A), Viden conversations and agent memberships
     cascade; their mailbox rows cascade and the mailbox itself is removed in Stalwart by the job mail.principal.delete;
     review screenshots and audio are files; feature usage is purged with the logs; their files in Object Storage (their
+    whole home and folders cascade; files they put in /shared stay, with the uploader link set to null); the contact
+    details on their GDPR requests, their unfinished uploads (rows cascade, objects removed), export and import
+    packages that may hold personal data plus the copies an import kept for undo (/admin/data/transfer), and
     whole home and folders cascade; files they put in /shared stay, with the uploader link set to null; so do the TAS documents and images they
     changed); the contact
     details on their GDPR requests, their unfinished uploads (rows cascade, objects removed), and
@@ -263,6 +359,34 @@ async def erase_user(user_id: int, *, actor_id: int | None, meta: RequestMeta, r
                                (user["email"],))
             # Outbound mail rows follow the user (cascade); those recorded before the account existed match the hash.
             await conn.execute("delete from outbound_mail where recipient_hash = %s", (phone_hash(user["email"]),))
+        # Secrets where they were A lose their accountable person: R and C are told (their RACI rows, requests,
+        # approvals, grants, memberships and queued notifications cascade with the user).
+        await secret_store.before_user_erased(conn, user_id, meta)
+        # Datalager: personal containers (and their items, revisions and versions) cascade; group containers where
+        # they were A lose their accountable person.
+        await datastore.before_user_erased(conn, user_id, meta)
+        # Beskeder: their inbox, threads, preferences and SMS rows cascade; answers they wrote as an admin stay in the
+        # other user's thread without their name (author_id is set null by the foreign key).
+        await conn.execute("update conversation_messages set author_name = null where author_id = %s and from_admin",
+                           (user_id,))
+        # What they wrote in conversations with other users goes; so do their direct conversations as a whole.
+        await conn.execute("""delete from conversations where kind = 'direct' and id in
+                              (select conversation_id from conversation_members where user_id = %s)""", (user_id,))
+        await conn.execute("""delete from conversation_messages x using conversations c
+                              where c.id = x.conversation_id and c.kind = 'instance' and x.author_id = %s""", (user_id,))
+        # Export and import packages may hold their data: they are deleted now (they would expire within days), and
+        # the copies an import kept so it could be undone are removed.
+        await conn.execute(f"delete from data_transfer_changes where {TRANSFER_CHANGES_OF_USER}", [str(user_id)] * 3)
+        packages = await db.fetch_all(conn, """
+            update data_transfers d set storage_key = null, password_enc = null, updated_at = now(),
+                   status = case when status in ('ready', 'uploaded', 'dry_ready') then 'expired' else status end
+            from (select id, storage_key from data_transfers where storage_key is not null
+                  and status not in ('queued', 'running', 'uploading', 'checking', 'dry_running', 'undoing')
+                  and (kind = 'import' or coalesce(manifest->>'personal', options->>'personal') <> 'without')) old
+            where d.id = old.id returning old.storage_key""")
+        # Action-studie: they are taken off the approver lists of waiting flow approvals (decisions keep decided_by = null).
+        await conn.execute("update dev_flow_approvals set approvers = array_remove(approvers, %s) where %s = any(approvers)",
+                           (user_id, user_id))
         await conn.execute("delete from users where id = %s", (user_id,))
         await meta_tree.delete_orphan_objects(conn)  # objects tagged only in their private tree
         await audit(conn, "gdpr.erasure", actor_id=actor_id if actor_id != user_id else None, meta=meta,
@@ -276,6 +400,11 @@ async def erase_user(user_id: int, *, actor_id: int | None, meta: RequestMeta, r
             pass  # the row is gone; an orphaned object is found by the storage overview
     for u in open_uploads:
         await uploads.discard(u)
+    for p in packages:
+        try:
+            await get_storage().delete(p["storage_key"])
+        except Exception:
+            pass
     counts = await retention.purge_user(user_id, logs=list(retention.LOGS),
                                         actor_id=actor_id if actor_id != user_id else None, meta=meta,
                                         reason=reason, contacts=[user["email"], user["phone"]])

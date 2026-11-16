@@ -7,8 +7,9 @@ linsen: hvert datasæt i kataloget peger på en tabel eller et API-endpoint, og 
 katalogets danske navne, beskrivelser, klassifikation og maskering.
 
 En datakilde kan være containerens egen Postgres eller **et hvilket som helst API**, beskrevet i en
-kildebeskrivelse (YAML). Datasæt, der markeres til MCP, bliver læseværktøjer på endpointet `/mcp/data`
-(se [`specs/mcp/APP.md`](../mcp/APP.md)).
+kildebeskrivelse (YAML) — skrevet her i Forbind API eller i udviklerportalens API Studio (`/developer/studio/api`).
+Et datasæt bliver et læseværktøj (dataværktøj) på de MCP-endpoints, det sættes på under MCP-værktøjer eller i MCP
+Studio (`/developer/studio/mcp`, egne endpoints på `/mcp/<nøgle>`); se [`specs/mcp/APP.md`](../mcp/APP.md).
 
 Design: [`design/data-mcp/`](design/data-mcp/README.md). Høj detaljegrad for layout og tekster; tal og
 rækker er eksempeldata.
@@ -24,12 +25,13 @@ Ny gruppe **Data** i `web/src/admin-app/nav.ts` mellem Produkt og Integrationer:
 
 Under Integrationer erstattes "MCP-servere" af **MCP-app ↗**, der åbner den separate app på `/mcp`.
 
-Sidemenuen (`AdminShell.tsx`) får desuden, jf. `AdminNav.dc.html`:
-- **Søgefelt** "Søg kommando" med ⌘K. Filtrerer menupunkterne på label, sti og gruppenavn; tomme grupper
-  skjules, antal træf vises ved gruppen, og "Ingen kommandoer matcher …" når intet passer.
+Sidemenuen (`SideMenu.tsx`) har desuden, jf. `AdminNav.dc.html`:
+- **Søgefelt** "Søg kommando" bag søgeikonet øverst og ⌘K. Filtrerer menupunkterne på label, sti og gruppenavn og
+  markerer de matchende tegn; tomme grupper skjules, antal træf vises ved gruppen, og "Ingen kommandoer matcher …"
+  når intet passer. *Bygget.*
 - **Sticky gruppeoverskrifter**. Panelet er altid 100 % højde (`position: sticky; height: 100vh`); kun
   listen scroller. Logo og søgefelt ligger fast øverst, serverfeltet fast nederst. Under 900 px lægger panelet
-  sig over indholdet uden intern scroll (som `.tg-side` i dag).
+  sig over indholdet uden intern scroll (som `.tg-side` i dag). *Bygget.*
 - **Serverfelt**: status, CPU sidste time (sparkline) og bjælker for CPU, hukommelse, disk og
   DB-forbindelser med brugt mod kapacitet. Grøn < 60 %, gul < 85 %, rød derover. Kræver et nyt endpoint
   `GET /api/admin/system` (`require_admin`); `/health` giver i dag kun database-tjek og version.
@@ -70,33 +72,49 @@ Editor til kildebeskrivelsen, "Hent fra OpenAPI-URL", "Lad AI foreslå felter" (
 
 ## Kildebeskrivelse (format v1)
 ```yaml
-kilde: dawa
-navn: Dataforsyningen · Adresser
+kilde: energidata
+navn: Energi Data Service
 type: rest                       # rest | graphql | openapi | mcp | postgres
-base_url: https://api.dataforsyningen.dk
+base_url: https://api.energidataservice.dk
 auth:
-  type: ingen                    # ingen | bearer | header | oauth2
-  # hemmelighed: DATA_SECRET_DAWA  # navnet på en miljøvariabel, aldrig selve nøglen
-grænser: { kald_pr_minut: 60, timeout_s: 10, cache_min: 60 }
+  type: ingen                    # ingen | bearer | header | basic | oauth2
+  # hemmelighed: data-bi/energidata  # navnet i Hemmeligheder (gruppe/navn[@miljø]), aldrig selve nøglen
+  # header: X-Api-Key            # type header
+  # brugernavn: gaer             # type basic (adgangskoden er hemmeligheden)
+  # token_url: https://…/token   # type oauth2: client credentials; hemmeligheden er client secret
+  # client_id: gaer-prod
+  # scope: data.read
+  # headers:                     # op til 5 ekstra headers, altid fra hemmeligheder
+  #   X-Partner-Id: { hemmelighed: data-bi/partner-id }
+grænser: { kald_pr_minut: 20, timeout_s: 10, cache_min: 60 }
 
 datasæt:
-  - id: adresser
-    navn: Adresser
-    kald: GET /adresser
+  - id: elspotpriser
+    navn: Elspotpriser
+    kald: GET /dataset/Elspotprices
     parametre:
-      q:      { type: tekst, navn: Søg }
-      postnr: { type: tal,   navn: Postnr. }
-    sider:   { type: side, parameter: side, størrelse: per_side, max: 1000 }
-    rækker:  $[*]                # JSONPath til listen i svaret
-    nøgle:   id
+      start: { type: dato, navn: Fra }
+      end:   { type: dato, navn: Til }
+    # type: side sender sidenummeret i parameter; type: offset sender antal rækker, der springes over
+    sider:   { type: offset, parameter: offset, størrelse: limit, max: 100 }
+    rækker:  $.records[*]        # JSONPath til listen i svaret
     felter:
-      id:      { type: uuid }
-      vej:     { sti: adgangsadresse.vejstykke.navn, navn: Vej }
-      postnr:  { sti: adgangsadresse.postnummer.nr,  navn: Postnr. }
-      by:      { sti: adgangsadresse.postnummer.navn, navn: By }
+      HourDK:       { type: dato, navn: Time }
+      PriceArea:    { navn: Prisområde }
+      SpotPriceDKK: { type: tal, navn: Spotpris DKK/MWh }
     relationer:
-      - fra: postnr
-        til: postnumre.nr
+      - fra: PriceArea
+        til: co2.PriceArea
+
+  - id: co2
+    navn: CO2-udledning
+    kald: GET /dataset/CO2Emis
+    sider:   { type: offset, parameter: offset, størrelse: limit, max: 100 }
+    rækker:  $.records[*]
+    felter:
+      Minutes5DK:  { type: dato, navn: Tidspunkt }
+      PriceArea:   { navn: Prisområde }
+      CO2Emission: { type: tal, navn: g CO2/kWh }
 ```
 
 ## Regler
@@ -104,9 +122,22 @@ datasæt:
 - **Kun læsning af data.** Udforsk og API-kilder læser; der skrives kun til katalogets egne tabeller.
 - **Kald går fra serveren.** Browseren kalder aldrig et eksternt API. Værter i en kildebeskrivelse kommer på
   en tilladt-liste, når beskrivelsen gemmes; kald har timeout, grænse pr. minut og cache.
-- **Ingen hemmeligheder i beskrivelsen.** `auth.hemmelighed` er navnet på en miljøvariabel, læst via
-  `config.data_secret()` i `server/app/config.py`. Kun navne, der starter med `DATA_SECRET_`, kan læses, så en beskrivelse
-  aldrig kan sende fx `DATABASE_URL` til et API. Gemmes en beskrivelse med noget, der ligner en nøgle, afvises den.
+- **Ingen hemmeligheder i beskrivelsen.** `auth.hemmelighed` (og `auth.headers.<navn>.hemmelighed`) er navnet på en
+  hemmelighed i Hemmeligheder (`/admin/secrets`) som `gruppe/navn` eller `gruppe/navn@miljø`. Kilden må kun bruge værdien,
+  mens den har en godkendt adgang **Brug i kilde** (niveau `use`): den anmodes fra Forbind API, godkendes af
+  hemmelighedens A, R og C efter dens regel, udløber altid (højst 365 dage), og ingen person kan se værdien gennem den
+  (`server/app/source_secrets.py`). Et testkald må bruge testerens egen adgang til værdien; det skrives i hemmelighedens
+  audit-log (`secret.used_in_test`). Nyeste version bruges altid, og adgangen tjekkes før cachen ved hvert kald.
+  Det gamle format, en miljøvariabel der starter med `DATA_SECRET_` (`config.data_secret()`), virker stadig, så en
+  beskrivelse aldrig kan sende fx `DATABASE_URL` til et API. Gemmes en beskrivelse med noget, der ligner en nøgle, afvises den.
+- **Forbindelser** (`/admin/data/explore?vis=forbindelser`) viser alle API'er, instansen taler med: dem, appen kalder fra
+  koden (registeret i `server/app/integrations.py`), og API-kilderne fra Forbind API — med formål, kode, nøgler (navne og om
+  de er sat, aldrig værdier), endpoints og kald, fejl og p95 for de sidste 24 timer eller 7 dage. Kald tælles som hændelsen
+  `api.call` med kun integrationen og endpointets mønster (aldrig den rigtige sti, konti eller forespørgsler). Object Storage
+  kaldes med boto3 og tælles ikke endnu.
+- **Forbind API** (`/admin/data/connect`) har fire veje ind: formular, YAML, import af et OpenAPI-dokument (JSON, læses i
+  browseren) og en cURL-kommando (nøgler i kommandoen gemmes aldrig). Formularen læser YAML gennem
+  `POST /api/admin/data/sources/parse` og skriver den tilbage. Hemmelighedstabellerne kan ikke udforskes.
 - **Klassifikation** Hvid/Grøn/Gul/Rød pr. felt og datasæt (som i datakataloget). Gule og røde felter vises
   maskeret. Afmaskering kræver en årsag, gælder i 15 minutter og skrives i audit-loggen. Tabeller, der ikke er
   i kataloget, kan udforskes, men gule og røde kolonner skjules, til de er katalogiseret.
@@ -138,8 +169,7 @@ Ikke bygget endnu:
 - Fanerne Versioner, Adgang og Feedback; `dataset_views` og `dataset_feedback`.
 - Tabeller uden for kataloget kan ikke udforskes direkte — de skal tilføjes først (og er så maskeret).
 - Typerne openapi, graphql, mcp og postgres (ekstern); "Hent fra OpenAPI-URL" og "Lad AI foreslå felter".
-- MCP-markeringen gemmes, men endpointet `/mcp/data` findes ikke endnu (`specs/mcp/APP.md`).
-- Sidemenuens søgefelt, sticky overskrifter, serverfelt (`/api/admin/system`) og sammenklapning.
+- Sidemenuens serverfelt (`/api/admin/system`) og sammenklapning.
 
 ## Åbne spørgsmål
 - Skal kildebeskrivelser ligge i databasen (redigeres i admin) eller som filer i repoet (`kilder/*.yaml`) eller begge?

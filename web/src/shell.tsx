@@ -27,6 +27,7 @@ const ICONS: Record<string, ReactNode> = {
   panel: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M9 3v18" /></>,
   sparkle: <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" />,
   chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />,
+  inbox: <><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></>,
   menu: <path d="M4 6h16M4 12h16M4 18h16" />,
   x: <path d="M18 6L6 18M6 6l12 12" />,
   eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
@@ -93,15 +94,17 @@ function initials(text: string): string {
 
 // ── Navigation ──────────────────────────────────────────────────────────────
 
-type NavItem = { to: string; label: string; icon: string; feature?: string; end?: boolean; mobile?: boolean };
+type NavItem = { to: string; label: string; icon: string; feature?: string; end?: boolean; mobile?: boolean; section?: string };
 const WORK: NavItem[] = [
   { to: "/", label: "Overblik", icon: "home", end: true, mobile: true },
   { to: "/backoffice", label: "Backoffice", icon: "terminal" },
   { to: "/klip", label: "Klip", icon: "clip", feature: "klip", mobile: true },
   { to: "/filer", label: "Filer", icon: "folder", feature: "filer", mobile: true },
+  { to: "/beskeder", label: "Beskeder", icon: "inbox", feature: "beskeder" },
+  { to: "/samtaler", label: "Samtaler", icon: "chat", feature: "samtaler" },
   { to: "/user", label: "Mit område", icon: "users", end: true },
   { to: "/user/deling", label: "Deling", icon: "share" },
-  { to: "/develop", label: "Udvikling", icon: "code" },
+  { to: "/developer", label: "Udvikler", icon: "code", section: "/developer" },
 ];
 const ACCOUNT: NavItem[] = [
   { to: "/konto", label: "Konto og sikkerhed", icon: "user", end: true },
@@ -111,7 +114,10 @@ const ACCOUNT: NavItem[] = [
 
 function SideLink({ item, onClick }: { item: NavItem; onClick?: () => void }) {
   const enabled = useFeature(item.feature ?? "");
+  const { user } = useAuth();
   if (item.feature && !enabled) return null;
+  // Admin sections (app/admin_roles.py): /developer is for admins with the role Data or Fuld.
+  if (item.section && !(user?.role === "admin" && user.admin_sections.includes(item.section))) return null;
   return (
     <NavLink to={item.to} end={item.end} className="side-link" title={item.label} onClick={onClick}>
       <Icon name={item.icon} />

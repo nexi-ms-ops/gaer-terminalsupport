@@ -11,6 +11,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
+from app import captcha, config, db, events, jobs, killswitch, mail, og, retention, settings_store, storage, webhooks
+from app import license as gaer_license
+from app.canonical_host import CanonicalHostMiddleware
 from app import captcha, config, db, events, jobs, killswitch, mail, og, retention, settings_store, storage, tas, webhooks
 from app import uploads  # noqa: F401  (registers the files.unzip, files.uploads_cleanup and storage.cors jobs)
 from app.mailbox import tasks as mailbox_tasks  # noqa: F401  (registers the mail.* jobs and the Lettermint handler)
@@ -21,11 +24,30 @@ from app import route_manifest
 from app.routes import access as access_routes
 from app.routes import (admin, admin_files, admin_ops, adoption, ai, app_store, auth, clips, consumption, data, features, files,
                         hooks, impersonation, knowledge, knowledge_admin, me, mcp_tools, nats, office, public, resources, review,
+                        security, studio, user_area, web)
                         security, tas as tas_routes, user_area, web)
 from app.routes import admin_mail
+from app.routes import admin_secrets
+from app.routes import admin_datastore
+from app.routes import datastore as datastore_routes
+from app.routes import login_providers as login_provider_routes
+from app.routes import groups as group_routes
+from app.routes import admin_messages
+from app.routes import messages as messages_routes
 from app.routes import admin_meta
 from app.routes import meta as meta_routes
+from app.routes import mapper as mapper_routes
 from app.routes import mail as mail_routes
+from app.routes import admin_users
+from app.routes import developer as developer_routes
+from app.routes import developer_data as developer_data_routes
+from app.routes import developer_studio as developer_studio_routes
+from app.routes import developer_mcp as developer_mcp_routes
+from app.routes import developer_api as developer_api_routes
+from app.routes import developer_flows as developer_flow_routes
+from app.routes import gaer_api
+from app.routes import admin_transfer
+from app.routes import yubikey as yubikey_routes
 from app.security import bootstrap_admin_email, bootstrap_admin_phone
 from app.sessions import optional_principal
 
@@ -35,7 +57,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 # without a CORS preflight, which we never allow, so it stops CSRF together with SameSite cookies.
 CSRF_HEADER = "x-gaer"
 CSRF_EXEMPT = {"/api/collect"}  # sendBeacon cannot set headers; the endpoint only appends anonymous events
-CSRF_EXEMPT_PREFIXES = ("/api/hooks/in/",)  # incoming webhooks: other systems, no cookie, verified per endpoint
+CSRF_EXEMPT_PREFIXES = ("/api/hooks/in/",   # incoming webhooks: other systems, no cookie, verified per endpoint
+                        "/api/auth/saml/")  # SAML responses: a form the IdP posts (signed, bound to the login flow)
+# Sign in with Apple answers with a form the browser posts (response_mode=form_post); the login flow it belongs to is
+# bound to the browser by state + cookie (routes/login_providers.py). Only the callback, no other /oidc/ path.
+CSRF_EXEMPT_RE = re.compile(r"^/api/auth/oidc/[a-z][a-z0-9-]{1,39}/callback$")
 
 # Who may embed us: the app itself (heatmap previews, the Office shell) and, for the embeddable
 # routes, the browser extension and the Office hosts (Office on the web runs add-ins in iframes).
@@ -43,6 +69,11 @@ OFFICE_HOSTS = ("https://*.officeapps.live.com https://*.office.com https://*.of
                 "https://*.microsoft.com https://*.sharepoint.com https://outlook.live.com")
 EXTENSION_HOSTS = "chrome-extension: moz-extension: safari-web-extension:"
 EMBEDDABLE = route_manifest.EMBEDDABLE  # routes with "embeddable": true in web/src/routes.json
+# Mapper's preview shows a shortcut's own page in a frame (sandboxed for HTML, the browser's PDF viewer for PDFs), so
+# only the documents of /extension/mapper and /m/mapper may frame other https sites. The side panel and /m open Mapper
+# with a full page load (ExtensionLayout, MobileLayout), so this CSP is the one in force there, and the /m service worker
+# never stores /m/mapper as its offline shell; every other page keeps frame-src 'self' + Office.
+FRAME_ANY_HTTPS = ("/extension/mapper", "/m/mapper")
 
 
 # Uploads go from the browser straight to Object Storage (app/uploads.py), so the bucket's origin may be fetched.
@@ -56,9 +87,10 @@ def csp_for(path: str) -> str:
         ancestors = f"'self' {EXTENSION_HOSTS} {OFFICE_HOSTS}"
     if path.startswith("/office-addin"):
         scripts = "'self' https://appsforoffice.microsoft.com"
+    frames = "'self' https: " if path.startswith(FRAME_ANY_HTTPS) else "'self' "
     return (f"default-src 'self'; script-src {scripts}; img-src 'self' data: blob: https:; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
-            f"connect-src 'self'{UPLOAD_ORIGIN}; frame-src 'self' https://*.officeapps.live.com https://*.office.com; "
+            f"connect-src 'self'{UPLOAD_ORIGIN}; frame-src {frames}https://*.officeapps.live.com https://*.office.com; "
             f"frame-ancestors {ancestors}; base-uri 'self'; form-action 'self'; object-src 'none'")
 
 
@@ -85,6 +117,8 @@ async def lifespan(app: FastAPI):
         log.warning("e-mail is not configured, login codes cannot be sent: missing %s", ", ".join(missing))
     if config.settings.is_production and not captcha.enabled():
         log.warning("CAPTCHA=off: account creation and login with a code have no robot check")
+    if not (lic := gaer_license.current()).valid:
+        log.warning("license: %s (%s) — /w pages say this installation is unlicensed", lic.status, lic.reason)
     await db.open_pools()
     async with db.connection() as conn:  # TAS: a new instance gets the simulator's menus and knowledge (app/tas.py)
         if seeded := await tas.seed_if_empty(conn):
@@ -105,10 +139,12 @@ async def lifespan(app: FastAPI):
 
 @asynccontextmanager
 async def mcp_sessions(app: FastAPI):
-    """Runs the session managers of /mcp and /mcp/admin (one each per process)."""
+    """Runs the session managers of /mcp and /mcp/admin (one each per process) and the task group the dynamic
+    /mcp/<key> endpoints start theirs in (app/mcp/transport.py DynamicEndpoints)."""
     async with AsyncExitStack() as stack:
         for endpoint in app.state.mcp.values():
             await stack.enter_async_context(endpoint.manager.run())
+        await stack.enter_async_context(app.state.mcp_dynamic.run())
         yield
 
 
@@ -145,6 +181,7 @@ def create_app() -> FastAPI:
         path = request.url.path
         if (path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS")
                 and path not in CSRF_EXEMPT and not path.startswith(CSRF_EXEMPT_PREFIXES)
+                and not CSRF_EXEMPT_RE.match(path)
                 and request.headers.get(CSRF_HEADER) != "1"):
             return JSONResponse({"detail": "Mangler X-Gaer header"}, status_code=403)
         # Kill switches (app.killswitch): a closed part of the service answers 503; /admin and login never close.
@@ -171,26 +208,45 @@ def create_app() -> FastAPI:
             response.headers.setdefault("Cache-Control", "no-store")
         return response
 
+    # The license statement in the <head> of every /w page (app.license); outermost, after the guard.
+    app.add_middleware(gaer_license.LicenseHeadMiddleware)
+    # Alias domains redirect to ORIGIN before anything else runs (app.canonical_host); outermost.
+    app.add_middleware(CanonicalHostMiddleware)
+
     @app.get("/health")
     async def health():
         async with db.connection() as conn:
             await conn.execute("select 1")
-        return {"ok": True, "version": config.settings.version}
+        return {"ok": True, "version": config.settings.version, "license": gaer_license.current().public()}
 
     for r in (auth.router, ai.router, me.router, security.router, files.router, clips.router, public.router,
               admin_files.router, admin.router,  # admin_files first: /files/folders before /files/{file_id}
-              app_store.router, mcp_tools.router, data.router, access_routes.router, features.router, features.admin_router,
+              admin_users.router, yubikey_routes.admin_router, yubikey_routes.router,
+              app_store.router, mcp_tools.router, data.router, studio.router, access_routes.router, features.router, features.admin_router,
               impersonation.router, mcp_oauth.router,
               mcp_hub.router, office.router, review.router, admin_ops.router, hooks.router, nats.router, resources.router, consumption.router,
               user_area.router, mail_routes.router, admin_mail.router, adoption.router, adoption.admin_router,
+              knowledge.router, knowledge_admin.router, group_routes.router, group_routes.me_router, admin_secrets.router,
+              datastore_routes.router, admin_datastore.router,
+              meta_routes.router, admin_meta.router, mapper_routes.router,
+              messages_routes.router, admin_messages.router, admin_transfer.router,
+              login_provider_routes.router, login_provider_routes.me_router, login_provider_routes.admin_router,
+              developer_routes.router, developer_data_routes.router,
+              developer_studio_routes.router, developer_mcp_routes.router,
+              developer_api_routes.router, gaer_api.router,
+              developer_flow_routes.router, developer_flow_routes.public,
+              web.router, files.memory_router):
               knowledge.router, knowledge_admin.router, meta_routes.router, admin_meta.router,
               tas_routes.router, web.router, files.memory_router):  # tas before web: /w/tas/… before /w/{slug}
         app.include_router(r)
 
-    # MCP: exact routes, so /mcp/authorize, /mcp/token and /mcp/register above stay ordinary endpoints.
+    # MCP: exact routes, so /mcp/authorize, /mcp/token and /mcp/register above stay ordinary endpoints. The dynamic
+    # endpoints from /developer/studio/mcp answer on /mcp/<key> after them (reserved keys are refused there).
     app.state.mcp = mcp_transport.endpoints()
+    app.state.mcp_dynamic = mcp_transport.DynamicEndpoints()
     app.router.routes.append(Route("/mcp/admin", endpoint=app.state.mcp["admin"], methods=["GET", "POST", "DELETE"]))
     app.router.routes.append(Route("/mcp", endpoint=app.state.mcp["app"], methods=["GET", "POST", "DELETE"]))
+    app.router.routes.append(Route("/mcp/{key}", endpoint=app.state.mcp_dynamic, methods=["GET", "POST", "DELETE"]))
 
     static_dir = os.path.abspath(config.settings.static_dir)
     index = os.path.join(static_dir, "index.html")

@@ -20,7 +20,8 @@ from app.security import client_ip, new_token, token_hash, user_agent
 
 COOKIE = "gaer_session"
 IMP_COOKIE = "gaer_imp"  # the impersonated test account's session, used only by the app on /
-REAL_ONLY_PATHS = ("/api/admin", "/api/impersonation")
+IMPERSONATION_PATH = "/api/impersonation"
+REAL_ONLY_PATHS = ("/api/admin", IMPERSONATION_PATH)
 
 
 @dataclass
@@ -38,7 +39,12 @@ class Principal:
     admin_roles: tuple[str, ...] = ()    # app/admin_roles.py: which parts of /admin
     mfa_at: datetime | None = None       # when this session proved a second factor
     grace: bool = False                  # an admin grace login without a second factor
+    yubikey_at: datetime | None = None   # when this session proved a YubiKey
+    yubikey_required: bool = False       # users.yubikey_required: /admin and step-up count only a YubiKey
     created_at: datetime | None = None
+    # The real admin while this browser impersonates a test account with the role user: /admin is closed until the
+    # impersonation stops (only /api/impersonation answers), so the admin cannot see admin content "as" a user.
+    impersonating_user: bool = False
 
     @property
     def contact(self) -> str | None:
@@ -46,7 +52,8 @@ class Principal:
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin" and self.scope == "full" and self.impersonator_id is None
+        return (self.role == "admin" and self.scope == "full" and self.impersonator_id is None
+                and not self.impersonating_user)
 
 
 def request_meta(request: Request) -> RequestMeta:
@@ -80,7 +87,7 @@ def clear_session_cookie(response: Response, embedded: bool) -> None:
 
 
 async def create_session(conn, response: Response, user_id: int, scope: str, meta: RequestMeta, *,
-                         mfa: bool = False, grace: bool = False) -> int:
+                         mfa: bool = False, grace: bool = False, yubikey: bool = False) -> int:
     """Always a new random token: a pending or code-only session is never upgraded in place."""
     assert scope in ("full", "mfa")
     token = new_token()
@@ -88,9 +95,9 @@ async def create_session(conn, response: Response, user_id: int, scope: str, met
     lifetime = timedelta(days=s.session_days) if scope == "full" else timedelta(minutes=s.mfa_session_minutes)
     expires = datetime.now(timezone.utc) + lifetime
     row = await db.fetch_one(conn,
-        """insert into sessions (user_id, token_hash, scope, expires_at, ip, user_agent, mfa_at, grace)
-           values (%s, %s, %s, %s, %s, %s, case when %s then now() end, %s) returning id""",
-        (user_id, token_hash(token), scope, expires, meta.ip, meta.user_agent, mfa, grace),
+        """insert into sessions (user_id, token_hash, scope, expires_at, ip, user_agent, mfa_at, grace, yubikey_at)
+           values (%s, %s, %s, %s, %s, %s, case when %s then now() end, %s, case when %s then now() end) returning id""",
+        (user_id, token_hash(token), scope, expires, meta.ip, meta.user_agent, mfa, grace, mfa and yubikey),
     )
     set_session_cookie(response, token, int(lifetime.total_seconds()), meta.embedded)
     return row["id"]
@@ -127,8 +134,8 @@ async def _session_row(conn, token: str, impersonator_id: int | None = None) -> 
         where = "s.impersonator_id = %s and u.impersonation_only and u.impersonation_owner_id = %s"
         params = (token_hash(token), impersonator_id, impersonator_id)
     row = await db.fetch_one(conn, f"""
-        select s.id as session_id, s.scope, s.last_seen_at, s.mfa_at, s.grace, s.created_at,
-               u.id as user_id, u.email, u.phone, u.role,
+        select s.id as session_id, s.scope, s.last_seen_at, s.mfa_at, s.grace, s.created_at, s.yubikey_at,
+               u.id as user_id, u.email, u.phone, u.role, u.yubikey_required,
                u.super_admin, u.admin_roles, u.display_name, u.blocked_at
         from sessions s join users u on u.id = s.user_id
         where s.token_hash = %s and s.revoked_at is null and s.expires_at > now() and {where}""", params)
@@ -149,17 +156,20 @@ async def _load(request: Request) -> Principal | None:
         if row is None:
             return None
         meta = request_meta(request)
-        if imp_token and row["role"] == "admin" and row["scope"] == "full" and not wants_real_session(request):
+        impersonating_user = False
+        if imp_token and row["role"] == "admin" and row["scope"] == "full":
             imp = await _session_row(conn, imp_token, impersonator_id=row["user_id"])
-            if imp is not None:
+            if imp is not None and not wants_real_session(request):
                 meta.impersonator_id = row["user_id"]
                 return Principal(session_id=imp["session_id"], user_id=imp["user_id"], email=imp["email"],
                                  phone=imp["phone"], role=imp["role"], scope=imp["scope"],
                                  display_name=imp["display_name"], meta=meta, impersonator_id=row["user_id"])
+            impersonating_user = imp is not None and imp["role"] != "admin"
     return Principal(session_id=row["session_id"], user_id=row["user_id"], email=row["email"], phone=row["phone"],
                      role=row["role"], scope=row["scope"], display_name=row["display_name"], meta=meta,
                      super_admin=row["super_admin"], admin_roles=tuple(row["admin_roles"] or ()), mfa_at=row["mfa_at"], grace=row["grace"],
-                     created_at=row["created_at"])
+                     created_at=row["created_at"], yubikey_at=row["yubikey_at"], yubikey_required=row["yubikey_required"],
+                     impersonating_user=impersonating_user)
 
 
 async def optional_principal(request: Request) -> Principal | None:
@@ -181,21 +191,35 @@ async def current_user(principal: Principal = Depends(any_session)) -> Principal
 
 
 def admin_mfa_ok(principal: Principal) -> bool:
-    """A second factor within ADMIN_MFA_HOURS, or a grace login younger than that."""
+    """A second factor within ADMIN_MFA_HOURS, or a grace login younger than that. With the YubiKey requirement:
+    a YubiKey within ADMIN_MFA_HOURS, and no grace logins."""
     window = timedelta(hours=config.settings.admin_mfa_hours)
+    if principal.yubikey_required:
+        return mfa.within(principal.yubikey_at, window)
     return mfa.within(principal.mfa_at, window) or (principal.grace and mfa.within(principal.created_at, window))
 
 
 async def require_admin(request: Request, principal: Principal = Depends(current_user)) -> Principal:
     """Everything in /admin is audited. Changes write their own detailed entries;
     reads are logged here as admin.read with the path and query.
-    After the grace logins /admin also needs a second factor (403 + X-Gaer-Error: mfa_required / mfa_setup_required)."""
-    if not principal.is_admin:
+    After the grace logins /admin also needs a second factor (403 + X-Gaer-Error: mfa_required / mfa_setup_required).
+    While this browser impersonates a test account with the role user, /admin is closed (403 + X-Gaer-Error: impersonating)."""
+    if principal.impersonating_user:
+        # Only the impersonation endpoints answer (status, stop, switch), so the admin can get back.
+        if not request.url.path.startswith(IMPERSONATION_PATH + "/"):
+            raise HTTPException(403, "Du efterligner en almindelig bruger. Stop efterligningen for at bruge /admin.",
+                                headers={mfa.ERROR_HEADER: "impersonating"})
+    elif not principal.is_admin:
         raise HTTPException(403, "Kræver admin-rollen")
     if not admin_roles.allows(principal.admin_roles, request.method, request.url.path):
         raise HTTPException(403, "Din admin-rolle giver ikke adgang til denne del af /admin")
     async with db.connection() as conn:
         if not admin_mfa_ok(principal):
+            if principal.yubikey_required:
+                if (await mfa.factors(conn, principal.user_id))["yubikeys"]:
+                    raise mfa_error("yubikey_required", "Bekræft med din YubiKey")
+                raise mfa_error("yubikey_setup_required",
+                                "Din konto kræver en YubiKey til administrationen. Bed en administrator om at tilknytte en.")
             if (await mfa.factors(conn, principal.user_id))["total"]:
                 raise mfa_error("mfa_required", "Bekræft med din passkey, sikkerhedsnøgle eller godkendelsesapp")
             raise mfa_error("mfa_setup_required",
@@ -208,7 +232,6 @@ async def require_admin(request: Request, principal: Principal = Depends(current
 
 async def require_admin_stepup(principal: Principal = Depends(require_admin)) -> Principal:
     """Security actions in /admin (roles, contact details, blocking, MFA reset, erasure, impersonation …): a second
-    factor proven within STEPUP_MINUTES. A grace login is not enough."""
-    if not mfa.within(principal.mfa_at, timedelta(minutes=config.settings.stepup_minutes)):
-        raise mfa_error("stepup_required", "Bekræft med din passkey, sikkerhedsnøgle eller godkendelsesapp først")
+    factor proven within STEPUP_MINUTES (a YubiKey for users with the YubiKey requirement). A grace login is not enough."""
+    mfa.require_stepup(principal)
     return principal

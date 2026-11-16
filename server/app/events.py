@@ -26,6 +26,7 @@ import json
 import logging
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 from psycopg.types.json import Jsonb
@@ -51,6 +52,7 @@ KINDS: dict[str, str] = {
     "ai.tokens": "AI-tokens pr. svar (værdi = tokens)",
     "job.failed": "Baggrundsjob der fejlede (ref = type)",
     "meta.node_created": "Noder oprettet i træstrukturer (ref = node-id)",
+    "mapper.import": "Import af favoritter til Mapper (ref = rodens node-id, værdi = genveje lagt i mapper)",
 }
 
 _nc = None          # nats.aio.client.Client once connected
@@ -76,7 +78,14 @@ async def _insert(rows: list[dict]) -> int:
                on conflict (id) do nothing""",
             ([r["id"] for r in rows], [r["ts"] for r in rows], [r["kind"] for r in rows], [r["ref"] for r in rows],
              [r["value"] for r in rows], [Jsonb(r["data"]) for r in rows]))
+        for listener in LISTENERS:
+            await listener(conn, rows)
         return cur.rowcount
+
+
+# Code that wants to act on stored events in the same transaction (flows: a trigger on an event kind): fn(conn, rows).
+# A listener must never raise.
+LISTENERS: list[Callable[[object, list[dict]], Awaitable[None]]] = []
 
 
 async def emit(kind: str, *, ref: str = "", value: float = 0, data: dict | None = None) -> bool:

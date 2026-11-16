@@ -17,12 +17,14 @@ FULL = "fuld"
 
 ROLES: dict[str, dict] = {
     FULL: {"label": "Fuld adgang", "description": "Alt i /admin, også hvem der er admin og med hvilke roller, og MCP for admin."},
-    "support": {"label": "Support", "description": "Hjælper brugere: konti, spærring, nulstilling af login, efterligning og auth-loggen."},
+    "support": {"label": "Support", "description": "Hjælper brugere: konti, grupper, spærring, nulstilling af login, efterligning og auth-loggen; sender beskeder, svarer brugerne og modererer samtaler."},
     "indhold": {"label": "Indhold", "description": "Website, filer, App Stores, Viden (vidensrum og agenter) og træstrukturer."},
     "produkt": {"label": "Produkt", "description": "Features og ringe, AI og AI-forbrug, analytics, heatmaps og adoptionsforløb."},
-    "data": {"label": "Data", "description": "Datakatalog, Udforsk, API-kilder og MCP-værktøjer (hvem må bruge hvad)."},
-    "privatliv": {"label": "Privatliv", "description": "GDPR-forespørgsler, samtykke, sletning af logdata, audit- og auth-log, og godkendelse af adgang til fortrolige data."},
-    "drift": {"label": "Drift", "description": "Mail, kalendere og kontakter, MCP-servere, udvidelse og Office, webhooks, jobs, NATS, ressourcer og indstillinger."},
+    "data": {"label": "Data", "description": "Datakatalog, Udforsk, datalageret (NoSQL og KV), API-kilder og MCP-værktøjer (hvem må bruge hvad), og udviklerportalen /developer (API Studio og MCP Studio)."},
+    "privatliv": {"label": "Privatliv", "description": "GDPR-forespørgsler, samtykke, sletning af logdata, audit- og auth-log, godkendelse af adgang til fortrolige data og moderering af samtaler."},
+    "udvikler": {"label": "Udvikler", "description": "Gær Developer (/developer): opretter og retter kladder af datasæt, pipelines, operationer, multisource-kilder, MCP-endpoints, API'er og flows. Udgivelse går gennem godkendelse."},
+    "udvikler_admin": {"label": "Udvikler-admin", "description": "Som Udvikler, og desuden dataforbindelser, eksterne MCP-servere og rollen Udvikler til andre."},
+    "drift": {"label": "Drift", "description": "Login-udbydere, mail, kalendere og kontakter, hemmeligheder, MCP-servere, udvidelse og Office, webhooks, jobs, NATS, ressourcer og indstillinger; levering af beskeder og deres kanaler."},
 }
 
 # /admin section (path under the router basename) → the API path prefixes it uses.
@@ -36,6 +38,7 @@ SECTIONS: dict[str, list[str]] = {
     "/adoption/console": ["/api/admin/adoption"],
     "/adoption/access": ["/api/admin/adoption"],
     "/users": ["/api/admin/users"],
+    "/login-providers": ["/api/admin/login-providers"],
     "/impersonation": ["/api/impersonation"],
     "/logs/auth": ["/api/admin/logs/auth"],
     "/logs/audit": ["/api/admin/logs/audit"],
@@ -51,6 +54,11 @@ SECTIONS: dict[str, list[str]] = {
     "/data/explore": ["/api/admin/data"],
     "/data/connect": ["/api/admin/data"],
     "/data/tools": ["/api/admin/data"],
+    "/data/store": ["/api/admin/store"],
+    # Export and import of data: in no role but fuld (a package can carry everyone's data, an import change anything).
+    "/data/transfer": ["/api/admin/transfer"],
+    # The developer portal on /developer (served by the app on /, not /admin): dashboard, API Studio, MCP Studio.
+    "/developer": ["/api/admin/studio", "/api/admin/dev"],
     "/access": ["/api/admin/access"],
     "/gdpr": ["/api/admin/gdpr"],
     "/consent": ["/api/admin/consent"],
@@ -63,24 +71,43 @@ SECTIONS: dict[str, list[str]] = {
     "/mail": ["/api/admin/mail"],
     "/resources": ["/api/admin/resources"],
     "/settings": ["/api/admin/settings"],
+    "/groups": ["/api/admin/groups"],
+    "/secrets": ["/api/admin/secrets"],
+    "/messages": ["/api/admin/messages/overview"],
+    "/messages/send": ["/api/admin/messages/broadcast"],
+    "/messages/replies": ["/api/admin/messages/replies"],
+    "/messages/delivery": ["/api/admin/messages/deliveries"],
+    "/messages/settings": ["/api/admin/messages/settings"],
+    "/messages/moderation": ["/api/admin/messages/moderation"],
 }
 
 EVERYONE = ["/"]
 ROLE_SECTIONS: dict[str, list[str]] = {
-    "support": ["/users", "/impersonation", "/logs/auth"],
+    "support": ["/users", "/groups", "/impersonation", "/logs/auth", "/messages", "/messages/send", "/messages/replies",
+                "/messages/moderation"],
     "indhold": ["/web", "/files", "/app-stores", "/knowledge", "/meta"],
     "produkt": ["/analytics", "/heatmaps", "/features", "/ai", "/consumption", "/adoption", "/adoption/journeys",
                 "/adoption/routes", "/adoption/console", "/adoption/access"],
-    "data": ["/data", "/data/explore", "/data/connect", "/data/tools"],
-    "privatliv": ["/gdpr", "/consent", "/retention", "/logs/audit", "/logs/auth", "/access"],
-    "drift": ["/mail", "/mcp", "/integrations", "/webhooks", "/jobs", "/nats", "/resources", "/settings"],
+    "data": ["/data", "/data/explore", "/data/connect", "/data/tools", "/data/store", "/developer"],
+    "privatliv": ["/gdpr", "/consent", "/retention", "/logs/audit", "/logs/auth", "/access", "/messages/moderation"],
+    "drift": ["/login-providers", "/mail", "/secrets", "/mcp", "/integrations", "/webhooks", "/jobs", "/nats", "/resources", "/settings",
+              "/messages", "/messages/delivery", "/messages/settings"],
+    # Gær Developer (specs/developer/ROLES.md): both open /developer; what only Udvikler-admin may change is DEV_ADMIN.
+    "udvikler": ["/developer"],
+    "udvikler_admin": ["/developer"],
 }
+
+# Gær Developer: changes only Udvikler-admin (or Fuld) may make — connections, external MCP servers, giving the role
+# Udvikler, API keys, known instances and imports. Reading them is open to everyone with /developer.
+DEVELOPERS = {"udvikler", "udvikler_admin", "data", FULL}
+DEV_ADMIN_ROLES = {"udvikler_admin", FULL}
+DEV_ADMIN_WRITES = [re.compile(r"^/api/admin/dev/(connections|upstreams|developers|api-keys|instances|import)(/|$)")]
 
 # Only `fuld`, even for roles whose sections contain the path.
 FULL_ONLY = [re.compile(r"^/api/admin/users/\d+/(role|admin-roles)$")]
 # The plain user list is read by other sections (feature levels, the extension's test-user picker in the top bar).
 USER_LIST = "/api/admin/users"
-USER_LIST_SECTIONS = {"/users", "/features", "/gdpr", "/retention", "/consumption"}
+USER_LIST_SECTIONS = {"/users", "/groups", "/features", "/gdpr", "/retention", "/consumption", "/messages/send"}
 
 
 def clean(roles) -> list[str]:
@@ -104,6 +131,8 @@ def allows(roles, method: str, path: str) -> bool:
         return True
     if any(p.match(path) for p in FULL_ONLY):
         return False
+    if method not in ("GET", "HEAD") and any(p.match(path) for p in DEV_ADMIN_WRITES) and not DEV_ADMIN_ROLES & set(roles):
+        return False
     open_sections = sections(roles)
     if method == "GET" and path == USER_LIST and USER_LIST_SECTIONS.intersection(open_sections):
         return True
@@ -112,6 +141,14 @@ def allows(roles, method: str, path: str) -> bool:
             if path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "."):
                 return True
     return False
+
+
+def is_developer(roles) -> bool:
+    return bool(DEVELOPERS & set(clean(roles)))
+
+
+def is_dev_admin(roles) -> bool:
+    return bool(DEV_ADMIN_ROLES & set(clean(roles)))
 
 
 def catalog() -> list[dict]:

@@ -5,6 +5,9 @@ WORKDIR /web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
 COPY web/ ./
+# Only typecheck + bundle here. `npm run build` also runs scripts/app-map.mjs --check, which needs the whole
+# repo (server/, specs/, README.md, .gaer/); that check runs in the test workflow, which deploy depends on.
+RUN npm run build:dist
 # Without the app-map --check of npm run build: it reads files outside web/ and already runs in test.yml
 RUN npx tsc -b && npx vite build
 
