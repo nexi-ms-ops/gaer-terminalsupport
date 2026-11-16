@@ -39,6 +39,15 @@ import Nats from "./pages/Nats";
 import Resources from "./pages/Resources";
 import MailAdmin from "./pages/mail/MailAdmin";
 import MailUser from "./pages/mail/MailUser";
+import Secrets from "./pages/secrets/Secrets";
+import SecretDetail from "./pages/secrets/SecretDetail";
+import Groups from "./pages/Groups";
+import MessagesOverview from "./pages/messages/Overview";
+import SendMessage from "./pages/messages/Send";
+import Replies from "./pages/messages/Replies";
+import Moderation from "./pages/messages/Moderation";
+import Delivery from "./pages/messages/Delivery";
+import MessageSettingsPage from "./pages/messages/Settings";
 import DataCatalog from "./pages/data/Catalog";
 import DataDataset from "./pages/data/Dataset";
 import DataExplore from "./pages/data/Explore";
@@ -50,7 +59,12 @@ import AdoptionRoutes from "./pages/adoption/Routes";
 import AdoptionConsole from "./pages/adoption/Console";
 import AdoptionAccess from "./pages/adoption/Access";
 import DataTools from "./pages/data/Tools";
+import DataTransfer from "./pages/data/Transfer";
+import Store from "./pages/store/Store";
+import StoreDetail from "./pages/store/StoreDetail";
 import Access from "./pages/Access";
+import LoginProviders from "./pages/loginProviders/Overview";
+import LoginProviderSetup from "./pages/loginProviders/Setup";
 import { AdminGo } from "./go";
 import "./base.css";
 import "./admin.css";
@@ -96,6 +110,8 @@ createRoot(document.getElementById("root")!).render(
                   <Route index element={<Stats />} />
                   <Route path="users" element={<Users />} />
                   <Route path="impersonation" element={<Impersonation />} />
+                  <Route path="login-providers" element={<LoginProviders />} />
+                  <Route path="login-providers/:key" element={<LoginProviderSetup />} />
                   <Route path="features" element={<Features />} />
                   <Route path="app-stores" element={<AppStores />} />
                   <Route path="app-stores/:tab" element={<AppStores />} />
@@ -128,10 +144,22 @@ createRoot(document.getElementById("root")!).render(
                   <Route path="resources" element={<Resources />} />
                   <Route path="mail" element={<MailAdmin />} />
                   <Route path="mail/users/:id" element={<MailUser />} />
+                  <Route path="secrets" element={legacy(<Secrets />)} />
+                  <Route path="secrets/:id" element={legacy(<SecretDetail />)} />
+                  <Route path="groups" element={legacy(<Groups />)} />
+                  <Route path="messages" element={<MessagesOverview />} />
+                  <Route path="messages/send" element={<SendMessage />} />
+                  <Route path="messages/replies" element={<Replies />} />
+                  <Route path="messages/moderation" element={<Moderation />} />
+                  <Route path="messages/delivery" element={<Delivery />} />
+                  <Route path="messages/settings" element={<MessageSettingsPage />} />
                   <Route path="data" element={<DataCatalog />} />
                   <Route path="data/explore" element={<DataExplore />} />
                   <Route path="data/connect" element={<DataConnect />} />
                   <Route path="data/tools" element={legacy(<DataTools />)} />
+                  <Route path="data/transfer" element={legacy(<DataTransfer />)} />
+                  <Route path="data/store" element={legacy(<Store />)} />
+                  <Route path="data/store/:id" element={legacy(<StoreDetail />)} />
                   <Route path="data/:id" element={<DataDataset />} />
                   <Route path="gdpr" element={legacy(<Gdpr />)} />
                   <Route path="access" element={legacy(<Access />)} />

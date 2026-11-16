@@ -36,6 +36,7 @@ import secrets
 import socket
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
@@ -71,8 +72,44 @@ EVENTS: dict[str, str] = {
     "meta.node.deleted": "En node i et delt træ er slettet (node-id, antal noder under den)",
     "meta.object.tagged": "Et objekt er tagget med noder i delte træer (objekt-id, node-id'er)",
     "meta.object.untagged": "Tags i delte træer er fjernet fra et objekt (objekt-id, node-id'er)",
+    "message.broadcast.sent": "En besked fra administrationen er sendt ud (besked-id, antal modtagere)",
+    "message.reply.created": "En bruger har svaret på en besked fra administrationen (tråd-id, besked-id)",
+    "message.report.created": "En bruger har anmeldt en besked i en samtale (anmeldelse-id, besked-id)",
+    "message.report.reviewed": "En moderator har afgjort anmeldelser af en besked (besked-id, afvist eller fjernet)",
     "killswitch.changed": "Et nødstop er lukket eller åbnet, i hånden eller af en regel (nøgle, lukket, automatisk)",
+    "auth.provider.updated": "En login-udbyder er oprettet, ændret eller slettet (udbyder-id, type)",
+    "auth.provider.enabled": "En login-udbyder er slået til (udbyder-id, type)",
+    "auth.provider.disabled": "En login-udbyder er slået fra (udbyder-id, type)",
+    "auth.provider.cert_expiring": "En SAML-forbindelses signeringscertifikat udløber snart (udbyder-id, dage)",
+    "secret.created": "En hemmelighed er oprettet (hemmelighed-id, gruppe-id)",
+    "secret.access.requested": "Nogen anmoder om adgang til en hemmelighed (hemmelighed-id, anmodning-id, gruppe-id)",
+    "secret.access.decided": "En anmodning om adgang er godkendt, afvist eller udløbet (hemmelighed-id, anmodning-id, status)",
+    "secret.value.changed": "En hemmeligheds værdi er ændret (hemmelighed-id, version, gruppe-id) — aldrig værdien",
+    "secret.rotation.due": "En hemmelighed skal snart roteres (hemmelighed-id, gruppe-id)",
+    "secret.grant.expiring": "En adgang til en hemmelighed udløber snart (hemmelighed-id, adgang-id)",
+    "secret.grant.ended": "En adgang er udløbet eller tilbagekaldt (hemmelighed-id, adgang-id, årsag)",
+    "secret.grant.member_added": "En ny gruppemedlem har fået adgang via gruppen (hemmelighed-id, gruppe-id)",
+    "secret.raci.changed": "RACI for en hemmelighed er ændret (hemmelighed-id, gruppe-id)",
+    "secret.orphaned": "En hemmelighed har mistet sin ansvarlige (A) (hemmelighed-id, gruppe-id)",
+    "secret.archived": "En hemmelighed er arkiveret (hemmelighed-id, gruppe-id)",
+    "store.created": "En samling eller et navnerum i datalageret er oprettet (samling-id, gruppe-id, type)",
+    "store.release.proposed": "En version af en samling i datalageret venter på godkendelse (samling-id, version-id, version, major/minor)",
+    "store.release.decided": "En version i datalageret er godkendt, afvist, annulleret eller udløbet (samling-id, version-id, version, status)",
+    "store.archived": "En samling i datalageret er arkiveret (samling-id)",
+    "developer.version.published": "En version af et artefakt i Developer er udgivet (artefakt-id, type, version, ændringstype)",
+    "snapshot.updated": "Et snapshot fra en pipeline er genopfrisket (pipeline-id, datasæt-id, kørsel-id, rækker)",
+    "pipeline.run.failed": "En pipelinekørsel fejlede; det sidste gode snapshot bevares (pipeline-id, kørsel-id)",
+    "developer.review.required": "Et artefakt kræver review, fordi noget det bruger har fået en major (artefakt-id, årsag-id, review-id)",
+    "flow.event": "Et flow i Action-studie udsendte en hændelse med handlingen »Udsend hændelse« (flow-id, kørsel-id, navn, data)",
+    "flow.run.failed": "En kørsel af et flow i Action-studie fejlede (flow-id, kørsel-id)",
+    "data.exported": "En eksport fra /admin/data/transfer er klar til at blive hentet (id, områder, antal rækker)",
+    "data.imported": "En import er kørt (id, antal oprettet, antal opdateret)",
+    "data.import.undone": "En import er fortrudt (id)",
 }
+
+# Code that wants to act on every event in the same transaction as the change (flows: a trigger on an event):
+# fn(conn, event, data). A listener must never raise.
+LISTENERS: list[Callable[[object, str, dict], Awaitable[None]]] = []
 
 # Tests replace this with an httpx.MockTransport.
 transport: httpx.AsyncBaseTransport | None = None
@@ -148,6 +185,8 @@ async def emit(conn, event: str, data: dict) -> int:
         if _matches(h["events"], event):
             await _queue(conn, h, event, data)
             n += 1
+    for listener in LISTENERS:
+        await listener(conn, event, data)
     return n
 
 

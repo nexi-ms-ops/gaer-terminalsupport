@@ -34,22 +34,23 @@ herfra ind i sin fork.
 | --- | --- | --- |
 | `/` | logget ind | Appens forside. Anonyme sendes til `/w/`. |
 | `/w/…` | alle | Offentligt website: Markdown-sider fra `/admin/web` (dansk/engelsk). Forsiden er Markdown-siden eller „Facit · 246“ (valgt i `/admin/web`) og slutter altid med et login-kort; på en ny instans står der, at den første, der logger ind, bliver administrator. |
-| `/login` | anonyme | E-mail → engangskode → anden faktor, hvis „Kræv passkey“ er slået til, ellers tilbud om passkey. Viser, når man bliver den første admin. Også `/extension/login` og `/m/login`. |
-| `/klip`, `/filer`, `/konto`, `/konto/forbrug`, `/privatliv` | logget ind (privatliv: alle) | Klip, filer, konto (profil, passkeys, sikkerhedsnøgler, godkendelsesapps, „Kræv passkey“, sessioner), eget AI-forbrug og budget, privatliv og GDPR. |
+| `/login` | anonyme | E-mail → engangskode (eller en login-udbyder, som en admin har slået til) → anden faktor, hvis „Kræv passkey“ er slået til, ellers tilbud om passkey. Viser, når man bliver den første admin. Også `/extension/login` og `/m/login`. |
+| `/klip`, `/filer`, `/konto`, `/konto/forbrug`, `/privatliv` | logget ind (privatliv: alle) | Klip, filer, konto (profil, passkeys, sikkerhedsnøgler, godkendelsesapps, „Kræv passkey“, forbundne logins, sessioner), eget AI-forbrug og budget, privatliv og GDPR. |
 | `/user`, `/user/<id>` | logget ind (`/user/<id>`: dem ejeren har givet adgang) | **Mit område**: overblik (tal, seneste aktivitet, områder delt med dig), indstillinger og deling. Giv en anden bruger adgang som **læser** eller **forfatter** (kan oprette og redigere, aldrig slette), evt. med udløb. De åbner det på `/user/<id>`. |
 | `/user/mail`, `/admin/mail` | logget ind (`/admin/mail`: admin, Drift) | **Mail, kalender og kontakter**: personlig postkasse i Stalwart, fælles postkasser, kalendere og adressebøger med deling, udgående mail via Lettermint, mail slettes efter højst 30 dage. `/user/mail` til brugeren, `/admin/mail` til drift. |
-| `/forbind`, `/go` | logget ind | **MCP-samtykke** (`/forbind`: en klient beder om adgang; `mcp:admin` kræver frisk anden faktor) og **deep links** (`/go?path=…&focus=…`, også `/admin/go`), der åbner en side og fokuserer et `data-deeplink`-anker. |
-| `/develop` | logget ind | **Promptkatalog** til udviklingsprocessen: færdige prompts til Claude (artifacts, nye features, endpoints, migrationer, tests, review, fejlfinding) med kategori, søgning og kopiér-knap. Linket fra forsiden. `/develop/trae` viser **træstrukturer** (TreeView, TreeSelect) mod de rigtige data: fire visninger og inputfelterne. |
+| `/beskeder`, `/samtaler`, `/admin/messages` | logget ind (`/admin/messages`: admin, Support, Privatliv og Drift) | **Beskeder** fra administrationen: udsendelse i to trin med overslag, indbakke på `/beskeder`, SMS kun med brugerens eget ja, e-mail, svar som privat tråd med administrationen. `/admin/messages` til afsendelse, svar, levering og regler. **Samtaler**: Fællessamtalen og direkte beskeder med anmeld, bloker og ordfilter; moderering i `/admin/messages/moderation`. |
+| `/forbind`, `/go`, `/flow-godkendelse` | logget ind | **MCP-samtykke** (`/forbind`: en klient beder om adgang; `mcp:admin` kræver frisk anden faktor) og **deep links** (`/go?path=…&focus=…`, også `/admin/go`), der åbner en side og fokuserer et `data-deeplink`-anker. **Flow-godkendelser** (`/flow-godkendelse/<token>`): et trin i et flow fra Action-studie venter på, at en af de udpegede godkender eller afviser; linket kommer på mail, og man svarer logget ind. |
+| `/developer/…` | interne brugere med admin-rollen Udvikler eller Udvikler-admin (eller Data eller Fuld); /gaer/… for API-nøgler og tokens | **Gær Developer** (spec i `specs/developer/`): egen sidebar, brødkrumme og ⌘K. Fem studier på én kerne af versionerede artefakter med RACI-ejere og godkendelse: Datastudie, Pipeline, MCP-studie, API-studie og Action-studie (flows: udløser + handlinger, en workflow-motor som Logic Apps og Power Automate), plus datakatalog, forbindelser, godkendelser og eksport/import. |
 | `/admin/…` | admin (+ MFA) | Administration — en selvstændig app (`web/admin.html`). Kræver anden faktor efter tre logins med engangskode. Alt logges. |
-| `/m/…` | logget ind | Mobil-app (PWA) med bundmenu, AI, klip, filer og profil. |
-| `/extension/…` | i browserudvidelsen | Sidepanelet: aktuel side, klip, tags for siden og AI med siden som kontekst. |
+| `/m/…` | logget ind | Mobil-app (PWA) med bundmenu, Mapper, AI, klip, filer og profil. |
+| `/extension/…` | i browserudvidelsen | Sidepanelet: aktuel side, Mapper med egne genveje, klip, tags for siden og AI med siden som kontekst. |
 | `/office-addin?app=word\|excel\|powerpoint\|outlook` | Office (offentlig skal) | Router for Word, Excel, PowerPoint og Outlook → værktøjerne under `/extension/tools/…`. |
 | `/extension/tools/word\|outlook\|document` | logget ind, i Office | Office-værktøjer: indsæt/gem klip og AI med dokumentet eller mailen som kontekst. |
 | `/api/…` | pr. endpoint | JSON-API. Ændringer kræver headeren `X-Gaer: 1` (CSRF). |
-| `/mcp`, `/mcp/admin` | MCP-klienter (OAuth) | MCP-servere: appen som den indloggede bruger og admin med kladder. OAuth: `/.well-known/oauth-*`, `/mcp/authorize`, `/mcp/token`, `/mcp/register`. |
+| `/mcp`, `/mcp/admin`, `/mcp/<key>` | MCP-klienter (OAuth) | MCP-servere: appen som den indloggede bruger, admin med kladder, og egne endpoints fra MCP Studio på `/mcp/<nøgle>`. OAuth: `/.well-known/oauth-*`, `/mcp/authorize`, `/mcp/token`, `/mcp/register`. |
 | `/health` | udrulning | Sundhedstjek (database + version), bruges af `deploy/deploy.sh`. |
 
-<details><summary>Alle ruter (88)</summary>
+<details><summary>Alle ruter (161)</summary>
 
 | Sti | Svarer | Adgang | Side |
 | --- | --- | --- | --- |
@@ -69,16 +70,70 @@ herfra ind i sin fork.
 | `/user/:id` | appen | logget ind | Delt område |
 | `/user/:id/mail` | appen | logget ind | Mail (feature `mail`) |
 | `/konto/forbrug` | appen | logget ind | Mit AI-forbrug |
+| `/beskeder` | appen | logget ind | Beskeder (feature `beskeder`) |
+| `/beskeder/:id` | appen | logget ind | Besked (feature `beskeder`) |
+| `/samtaler` | appen | logget ind | Samtaler (feature `samtaler`) |
+| `/samtaler/:id` | appen | logget ind | Samtale (feature `samtaler`) |
 | `/privatliv` | appen | alle | Privatliv |
 | `/forbind` | appen | logget ind | Forbind MCP-klient |
 | `/godkend` | appen | logget ind | Godkend adgang |
+| `/flow-godkendelse/:token` | appen | logget ind | Godkend i flow |
 | `/go` | appen | alle | Deep link |
-| `/develop` | appen | logget ind | Udvikling |
-| `/develop/trae` | appen | logget ind | Træstrukturer |
+| `/developer` | appen | admin | Developer · eget layout |
+| `/developer/studio` | appen | admin | Studio |
+| `/developer/studio/api` | appen | admin | API Studio |
+| `/developer/studio/mcp` | appen | admin | MCP Studio |
+| `/developer/prompts` | appen | admin | Promptkatalog |
+| `/developer/trae` | appen | admin | Træstrukturer |
+| `/developer/datastudie` | appen | admin | Endpoints i Datastudie |
+| `/developer/pipeline` | appen | admin | Pipelines |
+| `/developer/api` | appen | admin | API'er |
+| `/developer/forbindelser` | appen | admin | Dataforbindelser |
+| `/developer/eksport` | appen | admin | Eksport og import |
+| `/developer/katalog` | appen | admin | Datakatalog |
+| `/developer/katalog/lineage` | appen | admin | Lineage |
+| `/developer/katalog/:id` | appen | admin | Datasæt |
+| `/developer/godkendelser` | appen | admin | Venter på mig |
+| `/developer/godkendelser/historik` | appen | admin | Godkendelseshistorik |
+| `/developer/godkendelser/:id` | appen | admin | Godkendelse |
+| `/developer/artefakter/:id` | appen | admin | Artefakt |
+| `/developer/hjaelp` | appen | admin | Om Developer |
+| `/developer/pipeline/ny` | appen | admin | Ny pipeline |
+| `/developer/pipeline/snapshots` | appen | admin | Snapshots |
+| `/developer/pipeline/koersler` | appen | admin | Kørsler |
+| `/developer/pipeline/koersler/:id` | appen | admin | Kørsel |
+| `/developer/pipeline/planer` | appen | admin | Planer |
+| `/developer/pipeline/:id` | appen | admin | Pipeline-editor |
+| `/developer/forbindelser/cache` | appen | admin | Cache |
+| `/developer/forbindelser/:id` | appen | admin | Forbindelse |
+| `/developer/datastudie/ny` | appen | admin | Nyt endpoint |
+| `/developer/datastudie/endpoints/:id` | appen | admin | Endpoint |
+| `/developer/datastudie/operationer` | appen | admin | Operationer |
+| `/developer/datastudie/operationer/:id` | appen | admin | Operation |
+| `/developer/datastudie/multisource` | appen | admin | Multisource-kilder |
+| `/developer/mcp` | appen | admin | MCP-studie |
+| `/developer/mcp/testbaenk` | appen | admin | Testbænk |
+| `/developer/mcp/klienter` | appen | admin | Forbundne klienter |
+| `/developer/mcp/drift` | appen | admin | MCP-overvågning |
+| `/developer/mcp/eksterne` | appen | admin | Eksterne MCP-servere |
+| `/developer/datastudie/multisource/:id` | appen | admin | Multisource-kilde |
+| `/developer/api/noegler` | appen | admin | API-nøgler |
+| `/developer/api/konsol` | appen | admin | Testkonsol |
+| `/developer/api/dokumentation` | appen | admin | API-dokumentation |
+| `/developer/api/drift` | appen | admin | API-overvågning |
+| `/developer/api/:id` | appen | admin | API |
+| `/developer/actions` | appen | admin | Flows |
+| `/developer/actions/ny` | appen | admin | Nyt flow |
+| `/developer/actions/koersler` | appen | admin | Kørsler |
+| `/developer/actions/koersler/:id` | appen | admin | Kørsel |
+| `/developer/actions/:id` | appen | admin | Flow |
+| `/gaer/{path}` | serveren | OAuth | API'er fra API-studie |
 | `/admin` | admin-appen | admin | Statistik |
 | `/admin/go` | admin-appen | admin | Deep link |
 | `/admin/users` | admin-appen | admin | Brugere og roller |
 | `/admin/impersonation` | admin-appen | admin | Efterligning |
+| `/admin/login-providers` | admin-appen | admin | Login-udbydere |
+| `/admin/login-providers/:key` | admin-appen | admin | Login-udbyder |
 | `/admin/features` | admin-appen | admin | Features og ringe |
 | `/admin/app-stores` | admin-appen | admin | App Stores |
 | `/admin/app-stores/:tab` | admin-appen | admin | App Stores |
@@ -109,10 +164,22 @@ herfra ind i sin fork.
 | `/admin/resources` | admin-appen | admin | Ressourcer |
 | `/admin/mail` | admin-appen | admin | Mail |
 | `/admin/mail/users/:id` | admin-appen | admin | Brugerens mail |
+| `/admin/secrets` | admin-appen | admin | Hemmeligheder |
+| `/admin/secrets/:id` | admin-appen | admin | Hemmelighed |
+| `/admin/groups` | admin-appen | admin | Grupper |
+| `/admin/messages` | admin-appen | admin | Beskeder |
+| `/admin/messages/send` | admin-appen | admin | Send besked |
+| `/admin/messages/replies` | admin-appen | admin | Svar |
+| `/admin/messages/moderation` | admin-appen | admin | Moderering |
+| `/admin/messages/delivery` | admin-appen | admin | Levering |
+| `/admin/messages/settings` | admin-appen | admin | Kanaler og regler |
 | `/admin/data` | admin-appen | admin | Katalog |
 | `/admin/data/explore` | admin-appen | admin | Udforsk |
 | `/admin/data/connect` | admin-appen | admin | Forbind API |
 | `/admin/data/tools` | admin-appen | admin | MCP-værktøjer |
+| `/admin/data/store` | admin-appen | admin | Datalager |
+| `/admin/data/store/:id` | admin-appen | admin | Samling i datalageret |
+| `/admin/data/transfer` | admin-appen | admin | Eksport og import |
 | `/admin/data/:id` | admin-appen | admin | Datasæt |
 | `/admin/gdpr` | admin-appen | admin | GDPR-forespørgsler |
 | `/admin/access` | admin-appen | admin | Adgangsanmodninger |
@@ -120,11 +187,17 @@ herfra ind i sin fork.
 | `/admin/consent` | admin-appen | admin | Samtykke og cookies |
 | `/admin/settings` | admin-appen | admin | Indstillinger |
 | `/m` | appen | logget ind | Hjem · eget layout |
+| `/m/mapper` | appen | logget ind | Mapper (feature `mapper`) · eget layout |
 | `/m/klip` | appen | logget ind | Klip · eget layout |
 | `/m/chat` | appen | logget ind | AI · eget layout |
 | `/m/filer` | appen | logget ind | Filer · eget layout |
+| `/m/beskeder` | appen | logget ind | Beskeder (feature `beskeder`) · eget layout |
+| `/m/beskeder/:id` | appen | logget ind | Besked (feature `beskeder`) · eget layout |
+| `/m/samtaler` | appen | logget ind | Samtaler (feature `samtaler`) · eget layout |
+| `/m/samtaler/:id` | appen | logget ind | Samtale (feature `samtaler`) · eget layout |
 | `/m/profil` | appen | logget ind | Profil · eget layout |
 | `/extension` | appen | logget ind | Aktuel side · eget layout · kan indlejres |
+| `/extension/mapper` | appen | logget ind | Mapper (feature `mapper`) · eget layout · kan indlejres |
 | `/extension/chat` | appen | logget ind | AI · eget layout · kan indlejres |
 | `/extension/klip` | appen | logget ind | Klip · eget layout · kan indlejres |
 | `/extension/meta` | appen | logget ind | Tags · eget layout · kan indlejres |
@@ -139,6 +212,7 @@ herfra ind i sin fork.
 | `/api/{path}` | serveren | alle | API · kan indlejres |
 | `/mcp` | serveren | OAuth | MCP (appen) |
 | `/mcp/admin` | serveren | OAuth | MCP (admin) |
+| `/mcp/{key}` | serveren | OAuth | MCP (eget endpoint fra MCP Studio) |
 | `/.well-known/{name}` | serveren | alle | OAuth-metadata |
 | `/health` | serveren | alle | Sundhedstjek |
 
@@ -254,6 +328,12 @@ til brugeren `deploy`) og `SSH_KNOWN_HOSTS` (`ssh-keyscan <host>`), samt variabl
 På serveren laves `~/gaer/.env` ud fra `deploy/.env.example` og `~/gaer/app.env` ud fra
 `deploy/app.env.example`.
 
+**Kunden hoster selv.** En fork, som Gær Fleet laver med `DEPLOY_TARGET=compose` (eller `none`: kun image til
+GHCR), kører på kundens egen server med samme stak. Fleet sætter variablerne `APP_HOSTNAME` og `DOMAIN` til kundens
+eget værtsnavn, men skriver ingen secrets: kunden sætter selv `HOST`, `SSH_KEY` og `SSH_KNOWN_HOSTS` med sin egen
+nøgle, og `~/gaer/app.env` ligger kun på serveren. `LICENSE_KEY` udstedes af happymates.ai til kundens domæne, og
+serveren skal kunne nå happymates.ai over HTTPS.
+
 `postgres-init.sh` kører kun på et tomt volume. Har en eksisterende server ikke `<db>_mcp_ro` (fra før MCP), så
 sæt `DB_MCP_RO_PASSWORD` i `~/gaer/.env` og opret rollen én gang; den næste udrulning giver den rettighederne:
 
@@ -279,3 +359,16 @@ gælder inde i udvidelsen/Office.
 Alle indstillinger er miljøvariabler — se `.env.example` (lokalt), `deploy/app.env.example` og `deploy/.env.example`
 (produktion: appens indstillinger og stakkens hemmeligheder) og
 `server/app/config.py`. Navn, logo, SMS-afsender, GDPR-mail, cookie-tekster og opbevaringsperioder sættes i /admin.
+
+## Licens
+
+Copyright © 2026 Happy Mates Services ApS. Alle rettigheder forbeholdes.
+
+Gær er **ikke** open source. Koden må kun bruges af den, der har en skriftlig aftale med Happy Mates Services ApS,
+og kun til egen intern brug inden for aftalen. Den må ikke overdrages, videresælges, videregives, genbruges i andre
+produkter eller bruges til at bygge noget konkurrerende. Se [LICENSE](LICENSE).
+
+Hver installation får en **licensnøgle** fra happymates.ai (`LICENSE_KEY`, en JWT signeret med Ed25519). Nøglen
+indeholder licens-id, licenstager, en liste over de domæner installationen må køre på (`domains`) og den licenserklæring,
+der skal stå i `<head>` på alle sider under `/w`. Serveren tjekker nøglen (`server/app/license.py`) og sætter erklæringen
+ind; uden gyldig nøgle står der, at installationen er ulicenseret. Status ses på `/health`.

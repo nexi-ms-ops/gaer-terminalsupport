@@ -35,6 +35,21 @@ function drawHeat(canvas: HTMLCanvasElement, points: [number, number][], width: 
 }
 
 export default function Heatmaps() {
+  const sanitizeInternalPath = (value: unknown): string | null => {
+    if (typeof value !== "string") return null;
+    if (!value.startsWith("/")) return null;
+    if (value.startsWith("//")) return null;
+    if (value.includes("\\")) return null;
+    if (/[\u0000-\u001F\u007F]/.test(value)) return null;
+    try {
+      const u = new URL(value, window.location.origin);
+      if (u.origin !== window.location.origin) return null;
+      return `${u.pathname}${u.search}${u.hash}`;
+    } catch {
+      return null;
+    }
+  };
+
   const [days, setDays] = useState(30);
   const [device, setDevice] = useState("");
   const [path, setPath] = useState<string | null>(null);
@@ -48,6 +63,8 @@ export default function Heatmaps() {
   useEffect(() => {
     if (!path && pages.data?.length) setPath(pages.data[0].path);
   }, [pages.data, path]);
+  // Recorded paths are user input; only a normalized same-origin path may be framed.
+  const framed = sanitizeInternalPath(path);
 
   const measure = () => {
     const doc = frame.current?.contentDocument?.documentElement;
@@ -68,7 +85,7 @@ export default function Heatmaps() {
       </PageHeader>
       <div className="filters">
         <label className="field">Side
-          <select value={path ?? ""} onChange={(e) => { setPath(e.target.value); setSize(null); }}>
+          <select value={path ?? ""} onChange={(e) => { setPath(sanitizeInternalPath(e.target.value)); setSize(null); }}>
             {pages.data?.length === 0 && <option value="">Ingen data endnu</option>}
             {pages.data?.map((p) => <option key={p.path} value={p.path}>{p.path} — {fmtNumber(p.clicks)} klik</option>)}
           </select>
@@ -90,8 +107,8 @@ export default function Heatmaps() {
           <div className="stack">
             <div className="spread small"><strong className="mono">{path}</strong><span className="muted">{fmtNumber(heat.data.clicks.length)} klik</span></div>
             <div className="heat-frame" ref={wrap}>
-              <iframe ref={frame} src={path} title="Forhåndsvisning" onLoad={() => setTimeout(measure, 400)}
-                      style={{ width: "100%", height: size?.h ?? 800 }} />
+              {framed && <iframe ref={frame} src={framed} title="Forhåndsvisning" onLoad={() => setTimeout(measure, 400)}
+                      style={{ width: "100%", height: size?.h ?? 800 }} />}
               <canvas ref={canvas} style={{ width: size?.w, height: size?.h }} />
             </div>
           </div>

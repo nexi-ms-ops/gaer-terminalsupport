@@ -38,6 +38,9 @@ async def public_config():
     out["captcha"] = config.settings.captcha != "off"
     out["demo_mode"] = config.settings.demo_mode
     out["demo_logins"] = demo_logins.enabled()
+    # Login page: whether a new e-mail gets an account, and the line telling others whom to ask (app/signup.py).
+    out["signup"] = {"open": values["signup"].get("mode", "open") == "open",
+                     "contact": values["signup"].get("contact", "")}
     out["logo_url"] = "/api/public/logo" if values["logo_key"] else None
     out.pop("logo_key")
     return out
@@ -100,7 +103,8 @@ async def _has_consent(conn, visitor_id: str) -> bool:
 
 
 def _clean_path(value) -> str | None:
-    if not isinstance(value, str) or not value.startswith("/"):
+    # A path, not a URL: "//host" and "/\host" would load a foreign site in the heatmap preview.
+    if not isinstance(value, str) or not value.startswith("/") or value[1:2] in ("/", "\\") or "\\" in value:
         return None
     return value.split("?")[0].split("#")[0][:300]
 

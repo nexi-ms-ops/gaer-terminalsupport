@@ -104,6 +104,11 @@ async def log_stats() -> list[dict]:
 # (these are not log tables) from the hourly job retention.cleanup, and writes retention.cleanup to the audit log.
 
 CLEANUP_SQL = {
+    "dev_api_log": "delete from dev_api_log where ts < now() - make_interval(days => %s)",
+    "dev_call_metrics": "delete from dev_call_metrics where minute < now() - make_interval(days => %s)",
+    "dev_mcp_test_runs": "delete from dev_mcp_test_runs where ran_at < now() - make_interval(days => %s)",
+    "dev_pipeline_runs": "delete from dev_pipeline_runs where status in ('succeeded', 'failed', 'deferred') and queued_at < now() - make_interval(days => %s)",
+    "dev_notifications": "delete from dev_notifications where read_at is not null and created_at < now() - make_interval(days => %s)",
     "jobs": "delete from jobs where status in ('succeeded', 'failed', 'dead') and finished_at < now() - make_interval(days => %s)",
     "webhook_deliveries": """delete from webhook_deliveries where status in ('succeeded', 'dead')
                              and created_at < now() - make_interval(days => %s)""",
@@ -116,6 +121,10 @@ CLEANUP_SQL = {
     "captcha_spent": "delete from captcha_spent where expires_at < now() - make_interval(days => %s)",
     "adoption_visits": "delete from adoption_visits where at < now() - make_interval(days => %s)",
     "user_delegations": "delete from user_delegations where expires_at < now() - make_interval(days => %s)",
+    "login_flows": """with cutoff as (select now() - make_interval(days => %s) as t),
+                           seen as (delete from login_assertions_seen where expires_at < (select t from cutoff))
+                      delete from login_flows where expires_at < (select t from cutoff)""",
+    "yubikey_enrollments": "delete from yubikey_enrollments where expires_at < now() - make_interval(days => %s)",
     "mcp_access_requests": """delete from mcp_access_requests where updated_at < now() - make_interval(days => %s)
                               and (status in ('denied', 'withdrawn', 'revoked')
                                    or (status = 'approved' and expires_at < now())
@@ -129,9 +138,29 @@ CLEANUP_SQL = {
                               and decided_at < now() - make_interval(days => %s)""",
     "file_uploads": """delete from file_uploads where status in ('done', 'failed', 'aborted')
                        and coalesce(finished_at, created_at) < now() - make_interval(days => %s)""",
+    "secret_versions": """delete from secret_versions where superseded_at < now() - make_interval(days => %s)""",
+    "secret_access_requests": """with d as (select now() - make_interval(days => %s) as t),
+                                      g as (delete from secret_grants using d where ended_at < d.t)
+                                 delete from secret_access_requests q using d
+                                 where q.status <> 'pending' and q.decided_at < d.t""",
+    "secret_notifications": "delete from secret_notifications where sent_at < now() - make_interval(days => %s)",
+    "store_revisions": "delete from store_revisions where superseded_at < now() - make_interval(days => %s)",
+    "store_releases": """delete from store_releases where status in ('rejected', 'cancelled', 'expired')
+                         and decided_at < now() - make_interval(days => %s)""",
+    "message_deliveries": """delete from message_deliveries where channel <> 'app'
+                             and created_at < now() - make_interval(days => %s)""",
+    "sms_messages": "delete from sms_messages where created_at < now() - make_interval(days => %s)",
+    "message_reports": """delete from message_reports where status <> 'pending'
+                          and reviewed_at < now() - make_interval(days => %s)""",
+    # Packages are deleted by the job data.transfer_cleanup first; the history row goes after the policy's days.
+    "data_transfers": """delete from data_transfers where storage_key is null
+                         and status not in ('queued', 'running', 'uploading', 'checking', 'dry_running', 'undoing')
+                         and created_at < now() - make_interval(days => %s)""",
     "review_orphans": """delete from review_sessions s where ended_at < now() - make_interval(days => %s)
                          and jsonb_array_length(pages) = 0
                          and not exists (select 1 from review_feedback r where r.session_id = s.id)""",
+    "dev_flow_runs": """delete from dev_flow_runs where status in ('succeeded', 'failed', 'cancelled')
+                        and finished_at < now() - make_interval(days => %s)""",
 }
 
 

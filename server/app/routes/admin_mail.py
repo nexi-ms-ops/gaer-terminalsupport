@@ -396,8 +396,7 @@ class MailboxPatch(BaseModel):
 
 def _stepup(p: Principal) -> None:
     from app import mfa
-    if not mfa.within(p.mfa_at, timedelta(minutes=config.settings.stepup_minutes)):
-        raise mfa.mfa_error("stepup_required", "Bekræft med din passkey, sikkerhedsnøgle eller godkendelsesapp først")
+    mfa.require_stepup(p)
 
 
 @router.patch("/users/{user_id}/mailbox")
@@ -936,7 +935,7 @@ async def outbound_poll(body: PollIn, p: Principal = Depends(require_admin)):
     except jobs.Retry as e:
         raise HTTPException(429, str(e))
     except RuntimeError as e:
-        raise HTTPException(502, str(e))
+        raise HTTPException(424, str(e))
     async with db.connection() as conn:
         await audit(conn, "mail.outbound_poll", actor_id=p.user_id, meta=p.meta, after=result)
     return result

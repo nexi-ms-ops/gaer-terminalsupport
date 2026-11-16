@@ -15,16 +15,37 @@ import AiUsage from "./pages/AiUsage";
 import Files from "./pages/Files";
 import Privacy from "./pages/Privacy";
 import McpConsent from "./pages/McpConsent";
+import FlowApproval from "./pages/FlowApproval";
 import { DelegatedArea, UserHome, UserSettings, UserSharing } from "./pages/UserArea";
 import UserMail, { UserMailById } from "./pages/Mail";
 import Approve from "./pages/Approve";
-import Develop from "./pages/Develop";
-import Trees from "./pages/Trees";
+import { StudioLayout } from "./developer/DeveloperLayout";
+import DeveloperShell from "./developer/DeveloperShell";
+import DevOverview from "./developer/Overview";
+import { ApprovalDetail, ApprovalsHistory, ApprovalsMine } from "./developer/Approvals";
+import { CatalogDataset, CatalogLineage, CatalogList } from "./developer/Catalog";
+import { ArtifactPage } from "./developer/devui";
+import DevHelp, { Soon } from "./developer/Help";
+import { PipelineEditor, PipelineList, PipelineNew, PlansPage, RunPage, RunsPage, SnapshotsPage } from "./developer/Pipeline";
+import { ConnectionList, ConnectionPage } from "./developer/Connections";
+import { MultisourceList, MultisourcePage } from "./developer/Multisource";
+import { ApiList, ApiMonitorPage, ApiPage, ConsolePage, DocsPage, ExportPage, KeysPage } from "./developer/ApiStudie";
+import { FlowEditor, FlowList, FlowNew, FlowRunPage, FlowRunsPage } from "./developer/Actions";
+import { ClientsPage, McpOverview, MonitorPage, TestBench } from "./developer/McpStudie";
+import { CachePage, EndpointList, EndpointPage, Guide, OperationList, OperationPage } from "./developer/Datastudie";
+import StudioOverview from "./developer/StudioOverview";
+import ApiStudio from "./developer/ApiStudio";
+import McpStudio from "./developer/McpStudio";
+import Prompts from "./developer/Prompts";
+import Trees from "./developer/Trees";
+import Inbox from "./pages/Inbox";
+import Conversations from "./pages/Conversations";
 import ExtensionLayout from "./extension/ExtensionLayout";
 import ExtensionPage from "./extension/ExtensionPage";
 import ExtensionAccount from "./extension/ExtensionAccount";
 import ExtensionChat from "./extension/ExtensionChat";
 import ExtensionMeta from "./extension/ExtensionMeta";
+import Mapper from "./mapper/Mapper";
 import { Chat } from "./ai";
 import ClipsPage, { ClipsList, useClips } from "./clips";
 import OfficeShell from "./office/OfficeShell";
@@ -60,7 +81,7 @@ function TopBar() {
         <nav className="nav">
           {full && <FeatureGate feature="klip"><NavLink to="/klip">Klip</NavLink></FeatureGate>}
           {full && <FeatureGate feature="filer"><NavLink to="/filer">Filer</NavLink></FeatureGate>}
-          {full && <NavLink to="/develop">Udvikling</NavLink>}
+          {full && user.role === "admin" && user.admin_sections.includes("/developer") && <NavLink to="/developer">Udvikler</NavLink>}
           {full && <NavLink to="/user">Mit område</NavLink>}
           {full && user.role === "admin" && <a href="/admin">Admin</a>}
           {user ? (
@@ -89,7 +110,7 @@ function RequireUser({ children, login = "/login" }: { children: ReactNode; logi
   const { user, scope, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
-  if (!user || scope !== "full") return <Navigate to={login} replace state={{ from: location.pathname + location.search }} />;
+  if (!user || scope !== "full") return <Navigate to={login} replace state={{ from: location.pathname + location.search + location.hash }} />;
   return <>{children}</>;
 }
 
@@ -117,10 +138,14 @@ function ExtensionClips() {
   )} />;
 }
 
+// /develop moved to /developer (the prompt catalogue is now /developer/prompts).
+const MOVED: Record<string, string> = { "/develop": "/developer/prompts", "/develop/trae": "/developer/trae" };
+
 export default function App() {
   const { pathname } = useLocation();
   useDeepLinkFocus();
   const { user, scope } = useAuth();
+  if (MOVED[pathname]) return <Navigate to={MOVED[pathname]} replace />;
   const ownChrome = OWN_CHROME.some((p) => pathname === p || pathname.startsWith(p + "/"));
   // Signed-in pages get the shell (sidepanel, assistant, phone toolbar); everyone else the plain top bar.
   const shelled = !ownChrome && !!user && scope === "full" && pathname !== "/login";
@@ -137,14 +162,69 @@ export default function App() {
         <Route path="/user/:id" element={<RequireUser><DelegatedArea /></RequireUser>} />
         <Route path="/user/:id/mail" element={<RequireUser><FeatureGate feature="mail"><UserMailById /></FeatureGate></RequireUser>} />
         <Route path="/konto/forbrug" element={<RequireUser><AiUsage /></RequireUser>} />
+        <Route path="/beskeder" element={<RequireUser><FeatureGate feature="beskeder"><Inbox /></FeatureGate></RequireUser>} />
+        <Route path="/beskeder/:id" element={<RequireUser><FeatureGate feature="beskeder"><Inbox /></FeatureGate></RequireUser>} />
+        <Route path="/samtaler" element={<RequireUser><FeatureGate feature="samtaler"><Conversations /></FeatureGate></RequireUser>} />
+        <Route path="/samtaler/:id" element={<RequireUser><FeatureGate feature="samtaler"><Conversations /></FeatureGate></RequireUser>} />
         <Route path="/forbind" element={<RequireUser><McpConsent /></RequireUser>} />
         <Route path="/godkend" element={<RequireUser><Approve /></RequireUser>} />
+        <Route path="/flow-godkendelse/:token" element={<RequireUser><FlowApproval /></RequireUser>} />
         <Route path="/filer" element={<RequireUser><FeatureGate feature="filer"><Files /></FeatureGate></RequireUser>} />
         <Route path="/klip" element={<RequireUser><FeatureGate feature="klip"><ClipsPage /></FeatureGate></RequireUser>} />
         <Route path="/klip/:id" element={<RequireUser><FeatureGate feature="klip"><ClipsPage /></FeatureGate></RequireUser>} />
         <Route path="/go" element={<GoPage />} />
-        <Route path="/develop" element={<RequireUser><Develop /></RequireUser>} />
-        <Route path="/develop/trae" element={<RequireUser><Trees /></RequireUser>} />
+        <Route path="/developer" element={<RequireUser><DeveloperShell /></RequireUser>}>
+          <Route index element={<DevOverview />} />
+          <Route path="datastudie" element={<EndpointList />} />
+          <Route path="datastudie/ny" element={<Guide />} />
+          <Route path="datastudie/endpoints/:id" element={<EndpointPage />} />
+          <Route path="datastudie/operationer" element={<OperationList />} />
+          <Route path="datastudie/operationer/:id" element={<OperationPage />} />
+          <Route path="datastudie/multisource" element={<MultisourceList />} />
+          <Route path="datastudie/multisource/:id" element={<MultisourcePage />} />
+          <Route path="pipeline" element={<PipelineList />} />
+          <Route path="pipeline/ny" element={<PipelineNew />} />
+          <Route path="pipeline/snapshots" element={<SnapshotsPage />} />
+          <Route path="pipeline/koersler" element={<RunsPage />} />
+          <Route path="pipeline/koersler/:id" element={<RunPage />} />
+          <Route path="pipeline/planer" element={<PlansPage />} />
+          <Route path="pipeline/:id" element={<PipelineEditor />} />
+          <Route path="mcp" element={<McpOverview />} />
+          <Route path="mcp/testbaenk" element={<TestBench />} />
+          <Route path="mcp/klienter" element={<ClientsPage />} />
+          <Route path="mcp/drift" element={<MonitorPage />} />
+          <Route path="mcp/eksterne" element={<Soon title="Eksterne MCP-servere" text="Eksterne MCP-servere udstillet gennem Gær, med godkendte tool-lister." />} />
+          <Route path="api" element={<ApiList />} />
+          <Route path="api/noegler" element={<KeysPage />} />
+          <Route path="api/konsol" element={<ConsolePage />} />
+          <Route path="api/dokumentation" element={<DocsPage />} />
+          <Route path="api/drift" element={<ApiMonitorPage />} />
+          <Route path="api/:id" element={<ApiPage />} />
+          <Route path="actions" element={<FlowList />} />
+          <Route path="actions/ny" element={<FlowNew />} />
+          <Route path="actions/koersler" element={<FlowRunsPage />} />
+          <Route path="actions/koersler/:id" element={<FlowRunPage />} />
+          <Route path="actions/:id" element={<FlowEditor />} />
+          <Route path="forbindelser" element={<ConnectionList />} />
+          <Route path="forbindelser/cache" element={<CachePage />} />
+          <Route path="forbindelser/:id" element={<ConnectionPage />} />
+          <Route path="eksport" element={<ExportPage />} />
+          <Route path="katalog" element={<CatalogList />} />
+          <Route path="katalog/lineage" element={<CatalogLineage />} />
+          <Route path="katalog/:id" element={<CatalogDataset />} />
+          <Route path="godkendelser" element={<ApprovalsMine />} />
+          <Route path="godkendelser/historik" element={<ApprovalsHistory />} />
+          <Route path="godkendelser/:id" element={<ApprovalDetail />} />
+          <Route path="artefakter/:id" element={<ArtifactPage />} />
+          <Route path="hjaelp" element={<DevHelp />} />
+          <Route path="studio" element={<StudioLayout />}>
+            <Route index element={<StudioOverview />} />
+            <Route path="api" element={<ApiStudio />} />
+            <Route path="mcp" element={<McpStudio />} />
+          </Route>
+          <Route path="prompts" element={<Prompts />} />
+          <Route path="trae" element={<Trees />} />
+        </Route>
 
         <Route path="/extension/login" element={<Login home="/extension" embedded />} />
         <Route path="/extension/tools" element={<RequireUser login="/extension/login"><ToolLayout /></RequireUser>}>
@@ -156,6 +236,7 @@ export default function App() {
         <Route path="/extension/agent/:slug" element={<RequireUser login="/extension/login"><FeatureGate feature="knowledge"><AgentChat /></FeatureGate></RequireUser>} />
         <Route path="/extension" element={<RequireUser login="/extension/login"><ExtensionLayout /></RequireUser>}>
           <Route index element={<ExtensionPage />} />
+          <Route path="mapper" element={<FeatureGate feature="mapper"><Mapper /></FeatureGate>} />
           <Route path="chat" element={<ExtensionChat />} />
           <Route path="klip" element={<ExtensionClips />} />
           <Route path="meta" element={<ExtensionMeta />} />
@@ -166,9 +247,14 @@ export default function App() {
         <Route path="/m/login" element={<Login home="/m" embedded />} />
         <Route path="/m" element={<RequireUser login="/m/login"><MobileLayout /></RequireUser>}>
           <Route index element={<MobileHome />} />
+          <Route path="mapper" element={<FeatureGate feature="mapper"><Mapper /></FeatureGate>} />
           <Route path="klip" element={<MobileClips />} />
           <Route path="chat" element={<Chat surface="mobile" contextHint="Spørg om hvad som helst." />} />
           <Route path="filer" element={<MobileFiles />} />
+          <Route path="beskeder" element={<FeatureGate feature="beskeder"><Inbox base="/m/beskeder" compact /></FeatureGate>} />
+          <Route path="beskeder/:id" element={<FeatureGate feature="beskeder"><Inbox base="/m/beskeder" /></FeatureGate>} />
+          <Route path="samtaler" element={<FeatureGate feature="samtaler"><Conversations base="/m/samtaler" compact /></FeatureGate>} />
+          <Route path="samtaler/:id" element={<FeatureGate feature="samtaler"><Conversations base="/m/samtaler" compact /></FeatureGate>} />
           <Route path="profil" element={<Account />} />
         </Route>
 

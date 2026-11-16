@@ -2,14 +2,16 @@
 
 Gær is the lightweight version of Surdej: **one container** with a Python server (FastAPI) and a Vite frontend
 (React + TypeScript), with its **own PostgreSQL** (a container in the same compose stack, own database and roles)
-and **S3 Object Storage**. Login is e-mail + one-time code with passkeys, security keys and authenticator apps
+and **S3 Object Storage**. Login is e-mail + one-time code (or a login provider an admin switched on: Microsoft Entra ID,
+Google, Apple, GitHub, Amazon, SAML 2.0) with passkeys, security keys and authenticator apps
 (MFA for /admin, opt-in for users), with a full auth log and audit log. Every customer gets their own fork; updates are pulled from gaer-base.
 
 ## The backend already exists
 Do not scaffold a new backend, database or login. Everything below is in place and tested
 (skill `gaer-backend` has the details and code examples):
 
-- **Login** — e-mail (SMS opt-in) → one-time code → session cookie. Everyone is offered a passkey; users may opt
+- **Login** — e-mail (SMS opt-in) → one-time code → session cookie. Login providers (`/admin/login-providers`:
+  Entra ID, Google, Apple, GitHub, Amazon, SAML) can replace the code, never the second factor. Everyone is offered a passkey; users may opt
   in to MFA ("Kræv passkey"); /admin needs a second factor (passkey, security key or authenticator app) after
   three grace logins. Roles `user` and `admin`, first user becomes super admin. Guard endpoints with
   `current_user`, `require_admin` or `require_admin_stepup` from `app.sessions`. Frontend reads the user with
@@ -28,13 +30,23 @@ use `MAIL_PROVIDER=console` (and `SMS_PROVIDER=console`).
 | Path | What |
 | --- | --- |
 | `server/app/main.py` | app, CSRF + security headers, CSP per path, SPA fallback, `/health` |
-| `server/app/routes/` | `auth` login + second factor · `me` profile, avatar, account · `security` own factors + "Kræv passkey" · `files` own home + /shared · `admin_files` /api/admin/files tree · `clips` + bridge consent · `public` config, consent, analytics, GDPR form · `admin` /api/admin · `impersonation` test accounts · `features` rings + usage · `admin_ops` /api/admin webhooks (out and in), jobs, retention policies · `hooks` incoming webhooks · `review` review panel (notes, sessions, zip) · `app_store` App Stores · `data` /api/admin/data catalog, Udforsk, API sources · `nats` /api/admin/nats monitoring · `office` manifests · `web` /w website + extension zip · `user_area` /api/user Mit område + delegated access · `meta` /api/meta trees + `admin_meta` /api/admin/meta · `mail` /api/mail + `admin_mail` /api/admin/mail (mail module) |
+| `server/app/routes/` | `auth` login + second factor · `me` profile, avatar, account · `security` own factors + "Kræv passkey" · `files` own home + /shared · `admin_files` /api/admin/files tree · `clips` + bridge consent · `public` config, consent, analytics, GDPR form · `admin` /api/admin · `impersonation` test accounts · `features` rings + usage · `admin_ops` /api/admin webhooks (out and in), jobs, retention policies · `hooks` incoming webhooks · `login_providers` /login's provider buttons, OIDC/SAML callbacks, /api/me/identities, /api/admin/login-providers · `review` review panel (notes, sessions, zip) · `app_store` App Stores · `data` /api/admin/data catalog, Udforsk, API sources · `nats` /api/admin/nats monitoring · `office` manifests · `web` /w website + extension zip · `user_area` /api/user Mit område + delegated access · `meta` /api/meta trees + `admin_meta` /api/admin/meta · `mapper` /api/mapper (Mapper in the side panel) · `mail` /api/mail + `admin_mail` /api/admin/mail (mail module) · `messages` /api/messages inbox, replies, preferences + `admin_messages` /api/admin/messages (Beskeder) |
 | `server/app/sessions.py` | session cookie, `Principal`, `current_user` / `require_admin` / `require_admin_stepup` / `any_session` |
-| `server/app/mfa.py`, `totp.py` | second-factor rules (who needs what, changing factors), authenticator apps (TOTP) |
+| `server/app/mfa.py`, `totp.py` | second-factor rules (who needs what, changing factors, `stepup_ok` incl. the YubiKey requirement), authenticator apps (TOTP) |
+| `server/app/login_providers.py`, `saml.py`, `routes/login_providers.py` | **Login-udbydere** (`/admin/login-providers`, role Drift): Microsoft Entra ID and Google (OIDC + PKCE), Apple (Sign in with Apple: OIDC without PKCE, the answer is posted to the callback, client secret = a short-lived ES256 JWT signed with the team's .p8 key), GitHub and Amazon (OAuth 2.0), SAML 2.0 connections (signed assertions always, optional encryption, signxml). Each off until switched on (step-up). A provider replaces only the code: `_after_first_factor` decides the session as after a code. Identities in `user_identities` (linked on a verified e-mail or by the user on `/konto`), flows in `login_flows` bound to the browser; rule `required` sends a domain to its provider (no code, except the super admin). Client secrets, Apple keys and SP keys encrypted with `secrets_box`; job `auth.saml_metadata`; webhooks `auth.provider.*` |
+| `server/app/signup.py`, `routes/admin_users.py` | who may create an account by logging in (setting `signup`: open, domains, closed); admins create users, save the full user edit in one transaction, send a login link ("Gendan adgang") |
+| `server/app/yubikey.py`, `routes/yubikey.py` | the YubiKey requirement (`users.yubikey_required`): is a key a YubiKey by its attestation (`YUBICO_ROOTS`), enrolment by an admin in person or with a mailed link (`/konto#yubikey=…`) |
 | `server/app/filetree.py` | file tree over `files`: a home per user under `/users/<id>/` (`~/` = your own) and `/shared/` for project files; folders (`file_folders`), access rules, upload/write/move/delete with audit — used by `/api/files`, `/api/admin/files`, the AI chat and both MCP servers |
 | `server/app/uploads.py` | Direct upload to Object Storage: the browser PUTs to presigned links (multipart for big files) past Cloudflare's 100 MB limit, then completes (`/api/files/uploads`, `/api/admin/files/uploads`; client `web/src/upload.ts`). A zip is kept as it is or unpacked into the tree by the job `files.unzip` (folders kept, limits `UNZIP_MAX_*`); jobs `files.uploads_cleanup`, `storage.cors` (bucket CORS for `ORIGIN`) |
 | `server/app/mailbox/` | Mail, calendar and contacts (`specs/mail/`): `backend.py` Stalwart client (or in memory, `MAILBOX_BACKEND`), `service.py` rules (provisioning, shared-mailbox and collection roles, identities, app passwords, 30-day retention), `dns.py` domain records + live check, `tasks.py` jobs `mail.*` and the `lettermint` incoming-webhook handler |
-| `server/app/meta.py` | Træstrukturer (`specs/meta/`): dimensions and nodes with materialised paths (`/org/drift/support`, private `~/…` per user), who may create where (top level: admin role Indhold; locked dimension: admin; below: everyone), search, resolve stored ids, subtree expansion, move with path rewrite. UI: `web/src/tree/` (`TreeView`, `TreeSelect`, `useTree`), examples on `/develop/trae`, admin on `/admin/meta`. Other tables store node ids, never paths. `server/app/meta_objects.py`: tagging objects (URL, prefix pattern `…/*`, host, entity `type:id`, note) with nodes across dimensions, visibility through the nodes, the context of a node (parents, siblings, children, objects, related) and URL look-up for the extension; `TagEditor` in `web/src/tree/` |
+| `server/app/messages/` | Beskeder (`specs/beskeder/`): `service.py` audiences, the estimate, the two-step confirmation token, fan-out of a broadcast (an in-app row per recipient, plus SMS with the user's own yes or e-mail), quiet hours, reply threads; `tasks.py` jobs `messages.deliver`, `messages.sms` (duplicates, hourly cap, retries), `messages.mail`; `text.py` SMS segments (GSM-7/UCS-2); `chat.py` (phase 2) Fællessamtalen and direct conversations, blocks, the word filter, reports and moderation |
+| `server/app/meta.py` | Træstrukturer (`specs/meta/`): dimensions and nodes with materialised paths (`/org/drift/support`, private `~/…` per user), who may create where (top level: admin role Indhold; locked dimension: admin; below: everyone), search, resolve stored ids, subtree expansion, move with path rewrite. UI: `web/src/tree/` (`TreeView`, `TreeSelect`, `useTree`), examples on `/developer/trae`, admin on `/admin/meta`. Other tables store node ids, never paths. `server/app/meta_objects.py`: tagging objects (URL, prefix pattern `…/*`, host, entity `type:id`, note) with nodes across dimensions, visibility through the nodes, the context of a node (parents, siblings, children, objects, related) and URL look-up for the extension; `TagEditor` in `web/src/tree/` |
+| `server/app/mapper.py`, `routes/mapper.py` | **Mapper** (`specs/mapper/`, `/extension/mapper` and `/m/mapper`, feature `mapper`): the user's own folders of shortcuts on top of Træstrukturer — folders are private nodes under `~/mapper`, a shortcut is a URL object tagged with them; own titles for shared URL objects (`mapper_titles`), pins, folder properties (meta `labels`/`sort_key`/`child_sort`, `mapper_folder_settings`), copy/cut/paste and drag and drop (move = retag or meta's path rewrite, copy = an extra tag or a cloned subtree), saved views (mine and shared), the import of browser favourites in one transaction, and `frame_check` (response headers only, through the SSRF guard) for the framed preview. The only paths with `frame-src https:` in the CSP (`FRAME_ANY_HTTPS` in `main.py`); `public/m/sw.js` never stores `/m/mapper` as its shell. UI `web/src/mapper/`; the first surface with dark mode (`.theme-auto` in `styles.css`) |
+| `server/app/groups.py`, `routes/groups.py` | Groups (a general feature): `/api/admin/groups` (section `/groups`, role Support) and `/api/me/groups`; members are `member` or `manager`; adding a member needs a step-up (it can give access to secrets) |
+| `server/app/secret_store.py`, `routes/admin_secrets.py` | Secret manager (`/admin/secrets`, role Drift): a secret is owned by a group and has its own RACI (one A, ≥1 R; default creator A+R, rest of the group I); values encrypted with `secrets_box`, versioned, never logged/mailed/in webhooks or MCP; access only by a request approved by A, R and C (rule per secret), always expiring; reveal/change/approve/RACI need a step-up; notifications per group (`group_notify_rules`, jobs `secrets.mail`, `secrets.digest`, `secrets.maintenance`); API sources get the level `use` ("Brug i kilde") through the same approval, and `server/app/source_secrets.py` resolves a kildebeskrivelse's `hemmelighed: gruppe/navn` for a call (never a value in the description, the browser or logs) |
+| `server/app/integrations.py` | APIs called from code (AI, Lettermint and the other mail providers, OVH SMS, Stalwart, NATS monitoring, Object Storage): what each is for, which files call it, which settings hold its keys, its endpoints. Their httpx clients get `integrations.hooks(key)`, which records each call as the event `api.call` (ref = integration + endpoint pattern only, never a real path); API sources are recorded the same way. Shown in /admin/data/explore → Forbindelser (`GET /api/admin/data/connections`). A new outside API is not done until it is in the registry |
+| `server/app/transfer.py`, `routes/admin_transfer.py` | Eksport og import (`/admin/data/transfer`, only Fuld adgang): areas → tables in `transfer.TABLES` (natural key, references, what is never exported); an export is a zip (manifest + JSON or CSV per table, optionally the files' content, optionally encrypted with a password) built by the job `data.export` and downloadable for 24 hours; an import package goes from the browser straight to Object Storage (presigned links, multipart, past Cloudflare's 100 MB; `sendToBucket` in `web/src/upload.ts`) and is verified by the job `data.import_check`, then dry-run (`data.import` rolled back) and run with options (existing rows: skip/overwrite/merge/copy, match on natural key or id, missing users, all-or-nothing), audited per row and undoable for 7 days (`data_transfer_changes`, job `data.undo`); packages deleted by `data.transfer_cleanup`. A new table worth moving between instances gets a `Table` row there |
+| `server/app/datastore.py`, `routes/datastore.py`, `routes/admin_datastore.py` | **Datalager** (`/admin/data/store`, role Data): NoSQL collections (JSON documents, filter by containment, optional schema — a subset of JSON Schema) and KV namespaces (key → JSON value, optional expiry). Owned by a group with its own RACI (one A, ≥1 R; A/R/C admins with the section, as in Hemmeligheder) or by one user (`~slug`); private or shared with groups (read/write); single items can be private. Versioning `none` · `revisions` (restore) · `semver`: the items are the working copy, a release snapshots it as major.minor, the server decides what breaks readers (removed key, changed type, schema) → major; minor approved per `minor_rule`, major per `major_rule` among the RACI, never by the proposer (fallback: one other eligible admin). Readers get the current release or pin a major (`/api/store/kunder@3`); old majors sunset after `sunset_days` (410). Items and releases on `/api/store` (as the user), governance and approvals on `/api/admin/store` (step-up). Jobs `store.mail`, `store.maintenance`; retention `store_revisions`, `store_releases`; webhooks `store.*`. UI `web/src/admin-app/pages/store/` |
 | `server/app/delegation.py` | Mit område (`/user`): sharing your area with another user as reader or author (`/user/<id>`), access checks, the activity list; delegates' changes are audited with `on_behalf_of` |
 | `server/app/db.py` | connection pools: `db.connection()`, `db.purge_connection()`, `fetch_one`, `fetch_all` |
 | `server/app/config.py` | all settings from environment variables |
@@ -51,6 +63,8 @@ use `MAIL_PROVIDER=console` (and `SMS_PROVIDER=console`).
 | `server/app/resources.py`, `routes/resources.py` | /admin/resources: resources in use (container, Postgres, events, Object Storage, NATS, AI, e-mail/SMS, jobs) with limits and prices (setting `resources`), plus kill switches, rules and events by kind |
 | `server/app/nats_monitor.py`, `routes/nats.py` | /admin/nats: reads NATS' HTTP monitoring port (`NATS_MONITOR_URL`), whitelisted endpoints and parameters, secrets masked; read only |
 | `server/app/og.py` | og:image and sharing tags for the anonymous pages (/w, /login, /privatliv): generated images in `web_static/og/` (`node web/scripts/brand-assets.cjs`), replaced per surface or per Markdown page in /admin/web |
+| `server/app/license.py` | the license key from happymates.ai: `LICENSE_KEY` is a JWT (EdDSA, keys in `ISSUER_KEYS` in the code) with license id, licensee, `domains` array and statement; `LicenseHeadMiddleware` puts the statement in the `<head>` of every /w page (UNLICENSED when the key is missing or wrong), status on `/health`. Never remove or bypass it |
+| `server/app/canonical_host.py` | `REDIRECT_HOSTS`: alias domains (apex, www, the fork's own name) redirect to `ORIGIN` (301/308, path kept, never /health); set by the Gær Fleet console, `deploy/k8s/CUSTOM-DOMAINS.md` |
 | `server/app/captcha.py` | proof-of-work captcha (no third party) in front of `POST /api/auth/otp/start` |
 | `server/app/gdpr.py`, `reapply_erasures.py` | GDPR export (zip) and erasure; re-applying erasures after a backup restore |
 | `server/tests/` | pytest against real Postgres (`TEST_DATABASE_ADMIN_URL`) |
@@ -61,6 +75,9 @@ use `MAIL_PROVIDER=console` (and `SMS_PROVIDER=console`).
 | `deploy/aks/` | Kustomize manifests for AKS: `base/` + `overlays/main` and `overlays/canary`; settings in the secret `gaer-env` (see its README) |
 | `mobile/` | Expo app (iOS + Android): native login, then `/m` in a WebView — spec in `specs/mobile/` |
 | `server/app/mcp/` | MCP servers: `/mcp` (appen, as the user) and `/mcp/admin` (admin, drafts) — spec in `specs/mcp/` |
+| `server/app/routes/studio.py`, `server/app/mcp/endpoints.py` | Developer portal `/developer` (admin section `/developer`, roles Data and Fuld; `web/src/developer/`): dashboard, **API Studio** (`/developer/studio/api`, the source description as YAML → `/api/admin/data/sources`, datasets in the catalog) and **MCP Studio** (`/developer/studio/mcp`): endpoints on `/mcp/<key>` in `mcp_endpoints` (0030) with audience, instructions and the tools from the endpoint map; `transport.DynamicEndpoints` serves them, `/api/admin/studio` governs them (step-up, audited) |
+| `server/app/devkit/`, `routes/developer*.py`, `routes/gaer_api.py` | **Gær Developer** (`/developer`, spec in `specs/developer/`): `artifacts.py` versioned artifacts with RACI, contract diff → patch/minor/major (`contracts.py`), opt-in approval, review on a major, messages (jobs `developer.mail`, `developer.impact`); `masking.py` the one masking function (every row before it is returned, cached, logged or previewed); `catalog.py` datasets as artifacts + lineage; `connections.py` + `secrets.py` (the one secrets interface) connections via postgres_fdw/mysql_fdw or direct; `pipelines.py`/`pipeline_runs.py` stages → CTE SQL, snapshots in schema `snapshots` (`ANALYTICS_DATABASE_URL`), jobs `pipeline.run`/`pipeline.schedule` waiting for `ingest.load_status`; `operations.py` the shared runtime for MCP tools (kind `operation`) and APIs; `multisource.py`; `cache.py` cache/rate limits/idempotency in Redis (`REDIS_URL`) or Postgres; `mcp_endpoints.py`, `mcp_studio.py` (test bench, metrics `developer.metrics`); `apis.py` + `gaer_api.py` REST on `/gaer/v<major>/<slug>` with keys; `portability.py` signed export/import. Roles `udvikler` and `udvikler_admin` are admin roles (`admin_roles.DEV_ADMIN_WRITES`) |
+| `server/app/devkit/expr.py`, `flows.py`, `flow_runs.py`, `routes/developer_flows.py` | **Action-studie** (`/developer/actions`, spec `specs/developer/ACTIONS.md`): flows as artifacts of type `flow` — a trigger (manual with inputs, cron schedule, incoming webhook with handler `flow`, webhook events / event kinds through `webhooks.LISTENERS` / `events.LISTENERS`, a pipeline run) and steps (`http` with an API source as auth and the SSRF guard, `operation`, `pipeline`, `mail`, `message`, `ai`, `event`, child `flow`, `approval` answered on `/flow-godkendelse/<token>`, `file`, `if`/`switch`/`foreach`/`delay`/`terminate`/`set`/`compose`) with `{{ expressions }}` (a closed language, no code). Runs are the job `flow.run` (state committed per step, resumable, waiting runs hold no worker), `flow.schedule` every minute, retention `dev_flow_runs`, webhooks `flow.event`, `flow.run.failed` |
 | `server/app/access.py`, `mcp/toolmap.py` | the endpoint → tool map (Code and Data tools) governed from /admin/data, internal/external users, MCP access requests with approval from a list or an e-mail link — `specs/mcp/ACCESS.md` |
 
 ## Routes — one server, many surfaces
@@ -73,22 +90,23 @@ They share the same login (session cookie), the same database and the same API.
 | --- | --- | --- | --- |
 | `/` | logged in | The web app's home. **Anonymous visitors are redirected to `/w/`** (by the server, and by the SPA on client-side navigation). | main.py `spa()`, `web/src/pages/Home.tsx` |
 | `/w/…` | everyone | **Public website**, server-rendered HTML from Markdown pages (`web_pages`), da/en via `?lang=` + `w_lang` cookie. The front page is the Markdown page with an empty slug, or — setting `web_front = "facit246"` in `/admin/web` — the fixed "Facit · 246" story (da/en/de/sv/no, browser language by default; `web_front.py`, design in `specs/forside-246/`). The front page always ends with a **login card**; on a new instance (no users, no `BOOTSTRAP_ADMIN_EMAIL`) it says the first person to log in becomes admin. A placeholder is shown until a front page is written. | `routes/web.py`, `web_front.py`, `web_static/` |
-| `/login` | anonymous | E-mail → one-time code → second factor if "Kræv passkey" is on, else a passkey offer (see `gaer-auth`). Shows the first-user/admin notice when `first_user` is true. Also `/extension/login` and `/m/login` (same page, embedded layout). | `pages/Login.tsx` |
-| `/klip`, `/filer`, `/konto`, `/konto/forbrug`, `/privatliv` | logged in (privatliv: everyone) | Clips, files in Object Storage, account (profile, avatar, passkeys, security keys, authenticator apps, "Kræv passkey", sessions), own AI consumption and budget (`/konto/forbrug`), privacy + consent + GDPR requests. | `pages/`, `clips.tsx` |
+| `/login` | anonymous | E-mail → one-time code (or a login provider from `/admin/login-providers`: Microsoft, Google, Apple, GitHub, Amazon, SAML — only those switched on; a domain can be sent straight to its provider) → second factor if "Kræv passkey" is on, else a passkey offer (see `gaer-auth`). Shows the first-user/admin notice when `first_user` is true. Also `/extension/login` and `/m/login` (same page, embedded layout). | `pages/Login.tsx`, `routes/login_providers.py` |
+| `/klip`, `/filer`, `/konto`, `/konto/forbrug`, `/privatliv` | logged in (privatliv: everyone) | Clips, files in Object Storage, account (profile, avatar, passkeys, security keys, authenticator apps, "Kræv passkey", linked logins at providers, sessions), own AI consumption and budget (`/konto/forbrug`), privacy + consent + GDPR requests. | `pages/`, `clips.tsx` |
 | `/user`, `/user/<id>` | logged in (`/user/<id>`: people the owner gave access) | **Mit område**: your dashboard (counts, recent activity in your area, areas shared with you), settings (the account page) and sharing: give another user access by e-mail as **reader** (sees overview, clips, files, downloads) or **author** (also creates/edits clips and uploads files; never deletes), optionally expiring. They open it at `/user/<id>`; settings, security and sharing stay the owner's. Everything a delegate does is audited with `on_behalf_of`. | `pages/UserArea.tsx`, `routes/user_area.py`, `delegation.py` |
 | `/user/mail`, `/admin/mail` | logged in (`/admin/mail`: admin, section Drift) | **Mail, calendar and contacts** (spec in `specs/mail/`): one personal mailbox per user in **Stalwart** plus shared mailboxes (reader/sender/manager), calendars (CalDAV/JMAP) and address books (CardDAV) with sharing, all outbound mail relayed by **Lettermint**, mail kept at most **30 days**. `/user/mail` manages your mailbox, aliases, identities, app passwords, calendars, address books and client setup (`/user/<id>/mail` is the same page for your own id, 404 for anyone else); `/admin/mail` is the operator console (domains + DNS check, mailboxes, shared, calendars & contacts, sending, retention, health, audit) and `/admin/mail/users/<id>` one user's mail. Off unless `MAILBOX_BACKEND` is set. | `pages/Mail.tsx`, `admin-app/pages/mail/`, `mailbox/`, `routes/mail.py`, `routes/admin_mail.py` |
-| `/forbind`, `/go` | logged in | **MCP consent** (`/forbind`: a client asks for access, `mcp:admin` needs a fresh second factor) and **deep links** (`/go?path=…&focus=…`, also `/admin/go`) that open a page and focus a `data-deeplink` anchor. | `pages/McpConsent.tsx`, `deeplink.tsx`, `admin-app/go.tsx` |
-| `/develop` | logged in | **Prompt catalogue** for the development process: ready-made prompts to paste into Claude (artifacts, new features, endpoints, migrations, tests, review, debugging), filtered by category and search, copied with one click. Linked from the home page. The prompts live in the code (`web/src/develop/prompts.ts`). `/develop/trae` shows **tree structures** (`web/src/tree/`: TreeView, TreeSelect) against the real `/api/meta`: four renderings and the input fields (one node, a start node, tags, a subtree filter, creating a node). | `pages/Develop.tsx`, `develop/prompts.ts`, `pages/Trees.tsx`, `tree/` |
-| `/admin/…` | admin role (+ MFA) | **Standalone admin app** (own Vite entry `web/admin.html`): statistics, users + impersonation, features and rings, App Stores, auth/audit log, analytics, heatmaps, GDPR, retention, consent, files, tree structures (`/admin/meta`), website (`/admin/web`), AI (`/admin/ai`), AI consumption and budgets (`/admin/consumption`), extension & Office (`/admin/integrations`), MCP servers (`/admin/mcp`), webhooks (`/admin/webhooks`), jobs and cleanup (`/admin/jobs`), NATS monitoring (`/admin/nats`), resources, kill switches and events (`/admin/resources`), mail (`/admin/mail`), data catalog + Udforsk + API sources (`/admin/data`), adoption journeys measured by the routes users visit (`/admin/adoption`), settings. Every read and change is audited. | `admin-app/`, `routes/admin.py`, `impersonation.py`, `features.py`, `app_store.py`, `admin-app/pages/Meta.tsx` |
-| `/m/…` | logged in | **Mobile app (PWA)**: home, AI chat (if enabled), clips, files with camera upload, profile. Bottom tab bar, own manifest + service worker scoped to `/m/`. | `mobile/Mobile.tsx`, `public/m/` |
-| `/extension/…` | logged in, inside the browser extension | **Side panel** of the Chrome/Edge extension (iframe). Current page + per-domain consent + save as clip, AI chat with the page as context, clips, **tags** for the page (`/extension/meta`: what it is tagged with, tag it as the page, a folder pattern or the whole domain, browse a tag's context; the address is only looked up automatically on allowed domains), account. Talks to the panel over `gaer-bridge`. | `extension/`, `web/src/extension/`, `bridge/extension.ts`, `web/src/extension/ExtensionMeta.tsx` |
+| `/beskeder`, `/samtaler`, `/admin/messages` | logged in (`/admin/messages`: admin, sections Support, Privatliv and Drift) | **Beskeder** (spec in `specs/beskeder/`): broadcasts from the administration to an audience (everyone, admins, a feature ring, inactive users, chosen users), sent in two steps with an estimate ("X får SMS (ca. Y kr) · Z får e-mail") and a single-use confirmation token; a broadcast to everyone needs a step-up. Every message lands in the user's inbox on `/beskeder` (and `/m/beskeder`); per recipient it also goes by SMS (only with the user's own yes, never in quiet hours unless urgent; duplicates and an hourly cap) or e-mail. Recipients can reply: a private thread with the administration, answered in `/admin/messages/replies`. `/admin/messages` also has the delivery log and channels and rules. **Samtaler** (`/samtaler`, `/m/samtaler`, phase 2): Fællessamtalen (every user) and direct conversations between two users; users report messages and block each other (a block hides the other's messages and stops direct conversations both ways); a word filter rejects messages before they are stored. `/admin/messages/moderation` (Support, Privatliv) dismisses reports or removes the message, showing the three messages before it only while a report is open (audited); blocks only as counts. | `pages/Inbox.tsx`, `pages/Conversations.tsx`, `admin-app/pages/messages/`, `messages/`, `routes/messages.py`, `routes/admin_messages.py` |
+| `/forbind`, `/go`, `/flow-godkendelse` | logged in | **MCP consent** (`/forbind`: a client asks for access, `mcp:admin` needs a fresh second factor) and **deep links** (`/go?path=…&focus=…`, also `/admin/go`) that open a page and focus a `data-deeplink` anchor. **Flow approvals** (`/flow-godkendelse/<token>`): a step in an Action-studie flow waits for one of the listed people to approve or reject; they get the link by mail and answer logged in. | `pages/McpConsent.tsx`, `deeplink.tsx`, `admin-app/go.tsx`, `pages/FlowApproval.tsx` |
+| `/developer/…` | internal users with the admin role Udvikler or Udvikler-admin (or Data or Fuld); /gaer/… for API keys and tokens | **Gær Developer** (spec in `specs/developer/`): its own sidebar, breadcrumb and ⌘K palette. Five studios on one core of versioned artifacts with RACI owners and approval: **Datastudie** (a guide that turns a description into an MCP endpoint on `/mcp/<slug>` with tools built on operations; multisource sources that fetch live from several sources), **Pipeline** (MongoDB-style stages compiled to SQL, snapshots as materialized views in `snapshots`, runs that wait for `ingest.load_status`), **MCP-studie** (test bench, AI test, test cases, clients, monitoring, rate limits), **API-studie** (REST on `/gaer/v<major>/<slug>` with keys, OpenAPI 3.1, console and phase-out of old majors) and **Action-studie** (`/developer/actions`, spec in `specs/developer/ACTIONS.md`: flows as a workflow engine in the style of Logic Apps and Power Automate — a trigger (manual, cron schedule, incoming webhook, Gær event, pipeline finished) and steps (HTTP with an API source as auth, operation, pipeline, mail, Besked, AI, event, child flow, approval by a person, file, if/switch/foreach/delay) with `{{ expressions }}`; runs resume after a wait and are logged per step). Shared: the data catalog with classification, personal data and lineage, connections (FDW or direct), approvals, export/import. Masking is one function in the runtime; cache in Redis or Postgres. The classic Studio (`/developer/studio/api`, `/developer/studio/mcp`), the prompt catalogue and the tree examples are still here. | `developer/`, `server/app/devkit/`, `server/app/routes/developer*.py`, `server/app/routes/gaer_api.py`, `server/app/routes/studio.py`, `server/app/mcp/endpoints.py`, `tree/` |
+| `/admin/…` | admin role (+ MFA) | **Standalone admin app** (own Vite entry `web/admin.html`): statistics, users + impersonation, login providers (`/admin/login-providers`: Microsoft Entra ID, Google, Apple, GitHub, Amazon, SAML 2.0 — each off until switched on), features and rings, App Stores, auth/audit log, analytics, heatmaps, GDPR, retention, consent, files, tree structures (`/admin/meta`), website (`/admin/web`), AI (`/admin/ai`), AI consumption and budgets (`/admin/consumption`), extension & Office (`/admin/integrations`), MCP servers (`/admin/mcp`), webhooks (`/admin/webhooks`), jobs and cleanup (`/admin/jobs`), NATS monitoring (`/admin/nats`), resources, kill switches and events (`/admin/resources`), mail (`/admin/mail`), secrets owned by groups with RACI and approved access (`/admin/secrets`), groups (`/admin/groups`), data catalog + Udforsk + API sources (`/admin/data`), the data store — NoSQL collections and KV namespaces with RACI, sharing and major/minor versions (`/admin/data/store`), adoption journeys measured by the routes users visit (`/admin/adoption`), settings. Every read and change is audited. | `admin-app/`, `routes/admin.py`, `impersonation.py`, `features.py`, `app_store.py`, `admin-app/pages/Meta.tsx` |
+| `/m/…` | logged in | **Mobile app (PWA)**: home, **Mapper** (`/m/mapper`, feature `mapper`: the narrow drill-down layout of the side panel's Mapper, with „Tilføj genvej“ instead of „Gem denne side“ and import from an exported bookmarks file), AI chat (if enabled), clips, files with camera upload, profile. Bottom tab bar, own manifest + service worker scoped to `/m/` (never caches `/api/`, never stores `/m/mapper` as the offline shell). | `mobile/Mobile.tsx`, `public/m/` |
+| `/extension/…` | logged in, inside the browser extension | **Side panel** of the Chrome/Edge extension (iframe). Current page + per-domain consent + save as clip, **Mapper** (`/extension/mapper`, feature `mapper`, spec in `specs/mapper/`: the user's own folders of shortcuts in their private tree `~/mapper`, seen as folders, by topic (Emner) or by website; saved views, a framed preview of the page, import of the browser's favourites), AI chat with the page as context, clips, **tags** for the page (`/extension/meta`: what it is tagged with, tag it as the page, a folder pattern or the whole domain, browse a tag's context; the address is only looked up automatically on allowed domains), account. Talks to the panel over `gaer-bridge`. | `extension/`, `web/src/extension/`, `bridge/extension.ts`, `web/src/extension/ExtensionMeta.tsx`, `web/src/mapper/`, `routes/mapper.py` |
 | `/office-addin?app=word\|excel\|powerpoint\|outlook` | public shell | **Office router**: loads Office.js, detects the host, embeds the matching tool. Must stay public (Office closes panes that do not initialise). | `office/OfficeShell.tsx`, `office/handlers.ts` |
 | `/extension/tools/word\|outlook\|document` | logged in, inside the Office shell | Office tools: insert/save clips and AI chat with the document or mail as context; Office.js calls go to the shell over `gaer-office-host`. | `office/Tools.tsx`, `bridge/officeHost.ts` |
 | `/api/…` | per endpoint | JSON API. State-changing calls need the `X-Gaer: 1` header (CSRF). Groups: `auth`, `me`, `files`, `clips`, `bridge-consent`, `ai`, `public`, `consent`, `collect`, `office`, `extension/download`, `admin`. | `routes/` |
-| `/mcp`, `/mcp/admin` | MCP clients (OAuth bearer) | **MCP servers** (Streamable HTTP): the app as the logged-in user, and admin where every change is a draft. Consent page `/forbind`; deep links `/go` and `/admin/go`; hub in `/admin/mcp`. OAuth: `/.well-known/oauth-*`, `/mcp/authorize`, `/mcp/token`, `/mcp/register`. | `server/app/mcp/`, skill `gaer-mcp` |
+| `/mcp`, `/mcp/admin`, `/mcp/<key>` | MCP clients (OAuth bearer) | **MCP servers** (Streamable HTTP): the app as the logged-in user, admin where every change is a draft, and the endpoints defined in `/developer/studio/mcp` on `/mcp/<key>` (as the user, with the tools chosen there). Consent page `/forbind`; deep links `/go` and `/admin/go`; hub in `/admin/mcp`. OAuth: `/.well-known/oauth-*`, `/mcp/authorize`, `/mcp/token`, `/mcp/register`. | `server/app/mcp/`, skill `gaer-mcp`, `server/app/mcp/endpoints.py` |
 | `/health` | deploy | Database check + version; used by `deploy/deploy.sh` before switching versions. | `main.py` |
 
-<details><summary>All routes (88)</summary>
+<details><summary>All routes (161)</summary>
 
 | Path | Served by | Access | Page |
 | --- | --- | --- | --- |
@@ -108,16 +126,70 @@ They share the same login (session cookie), the same database and the same API.
 | `/user/:id` | app (`index.html`) | logged in | Delt område |
 | `/user/:id/mail` | app (`index.html`) | logged in | Mail (feature `mail`) |
 | `/konto/forbrug` | app (`index.html`) | logged in | Mit AI-forbrug |
+| `/beskeder` | app (`index.html`) | logged in | Beskeder (feature `beskeder`) |
+| `/beskeder/:id` | app (`index.html`) | logged in | Besked (feature `beskeder`) |
+| `/samtaler` | app (`index.html`) | logged in | Samtaler (feature `samtaler`) |
+| `/samtaler/:id` | app (`index.html`) | logged in | Samtale (feature `samtaler`) |
 | `/privatliv` | app (`index.html`) | everyone | Privatliv |
 | `/forbind` | app (`index.html`) | logged in | Forbind MCP-klient |
 | `/godkend` | app (`index.html`) | logged in | Godkend adgang |
+| `/flow-godkendelse/:token` | app (`index.html`) | logged in | Godkend i flow |
 | `/go` | app (`index.html`) | everyone | Deep link |
-| `/develop` | app (`index.html`) | logged in | Udvikling |
-| `/develop/trae` | app (`index.html`) | logged in | Træstrukturer |
+| `/developer` | app (`index.html`) | admin | Developer · own chrome |
+| `/developer/studio` | app (`index.html`) | admin | Studio |
+| `/developer/studio/api` | app (`index.html`) | admin | API Studio |
+| `/developer/studio/mcp` | app (`index.html`) | admin | MCP Studio |
+| `/developer/prompts` | app (`index.html`) | admin | Promptkatalog |
+| `/developer/trae` | app (`index.html`) | admin | Træstrukturer |
+| `/developer/datastudie` | app (`index.html`) | admin | Endpoints i Datastudie |
+| `/developer/pipeline` | app (`index.html`) | admin | Pipelines |
+| `/developer/api` | app (`index.html`) | admin | API'er |
+| `/developer/forbindelser` | app (`index.html`) | admin | Dataforbindelser |
+| `/developer/eksport` | app (`index.html`) | admin | Eksport og import |
+| `/developer/katalog` | app (`index.html`) | admin | Datakatalog |
+| `/developer/katalog/lineage` | app (`index.html`) | admin | Lineage |
+| `/developer/katalog/:id` | app (`index.html`) | admin | Datasæt |
+| `/developer/godkendelser` | app (`index.html`) | admin | Venter på mig |
+| `/developer/godkendelser/historik` | app (`index.html`) | admin | Godkendelseshistorik |
+| `/developer/godkendelser/:id` | app (`index.html`) | admin | Godkendelse |
+| `/developer/artefakter/:id` | app (`index.html`) | admin | Artefakt |
+| `/developer/hjaelp` | app (`index.html`) | admin | Om Developer |
+| `/developer/pipeline/ny` | app (`index.html`) | admin | Ny pipeline |
+| `/developer/pipeline/snapshots` | app (`index.html`) | admin | Snapshots |
+| `/developer/pipeline/koersler` | app (`index.html`) | admin | Kørsler |
+| `/developer/pipeline/koersler/:id` | app (`index.html`) | admin | Kørsel |
+| `/developer/pipeline/planer` | app (`index.html`) | admin | Planer |
+| `/developer/pipeline/:id` | app (`index.html`) | admin | Pipeline-editor |
+| `/developer/forbindelser/cache` | app (`index.html`) | admin | Cache |
+| `/developer/forbindelser/:id` | app (`index.html`) | admin | Forbindelse |
+| `/developer/datastudie/ny` | app (`index.html`) | admin | Nyt endpoint |
+| `/developer/datastudie/endpoints/:id` | app (`index.html`) | admin | Endpoint |
+| `/developer/datastudie/operationer` | app (`index.html`) | admin | Operationer |
+| `/developer/datastudie/operationer/:id` | app (`index.html`) | admin | Operation |
+| `/developer/datastudie/multisource` | app (`index.html`) | admin | Multisource-kilder |
+| `/developer/mcp` | app (`index.html`) | admin | MCP-studie |
+| `/developer/mcp/testbaenk` | app (`index.html`) | admin | Testbænk |
+| `/developer/mcp/klienter` | app (`index.html`) | admin | Forbundne klienter |
+| `/developer/mcp/drift` | app (`index.html`) | admin | MCP-overvågning |
+| `/developer/mcp/eksterne` | app (`index.html`) | admin | Eksterne MCP-servere |
+| `/developer/datastudie/multisource/:id` | app (`index.html`) | admin | Multisource-kilde |
+| `/developer/api/noegler` | app (`index.html`) | admin | API-nøgler |
+| `/developer/api/konsol` | app (`index.html`) | admin | Testkonsol |
+| `/developer/api/dokumentation` | app (`index.html`) | admin | API-dokumentation |
+| `/developer/api/drift` | app (`index.html`) | admin | API-overvågning |
+| `/developer/api/:id` | app (`index.html`) | admin | API |
+| `/developer/actions` | app (`index.html`) | admin | Flows |
+| `/developer/actions/ny` | app (`index.html`) | admin | Nyt flow |
+| `/developer/actions/koersler` | app (`index.html`) | admin | Kørsler |
+| `/developer/actions/koersler/:id` | app (`index.html`) | admin | Kørsel |
+| `/developer/actions/:id` | app (`index.html`) | admin | Flow |
+| `/gaer/{path}` | server | OAuth bearer | API'er fra API-studie |
 | `/admin` | admin app (`admin.html`) | admin | Statistik |
 | `/admin/go` | admin app (`admin.html`) | admin | Deep link |
 | `/admin/users` | admin app (`admin.html`) | admin | Brugere og roller |
 | `/admin/impersonation` | admin app (`admin.html`) | admin | Efterligning |
+| `/admin/login-providers` | admin app (`admin.html`) | admin | Login-udbydere |
+| `/admin/login-providers/:key` | admin app (`admin.html`) | admin | Login-udbyder |
 | `/admin/features` | admin app (`admin.html`) | admin | Features og ringe |
 | `/admin/app-stores` | admin app (`admin.html`) | admin | App Stores |
 | `/admin/app-stores/:tab` | admin app (`admin.html`) | admin | App Stores |
@@ -148,10 +220,22 @@ They share the same login (session cookie), the same database and the same API.
 | `/admin/resources` | admin app (`admin.html`) | admin | Ressourcer |
 | `/admin/mail` | admin app (`admin.html`) | admin | Mail |
 | `/admin/mail/users/:id` | admin app (`admin.html`) | admin | Brugerens mail |
+| `/admin/secrets` | admin app (`admin.html`) | admin | Hemmeligheder |
+| `/admin/secrets/:id` | admin app (`admin.html`) | admin | Hemmelighed |
+| `/admin/groups` | admin app (`admin.html`) | admin | Grupper |
+| `/admin/messages` | admin app (`admin.html`) | admin | Beskeder |
+| `/admin/messages/send` | admin app (`admin.html`) | admin | Send besked |
+| `/admin/messages/replies` | admin app (`admin.html`) | admin | Svar |
+| `/admin/messages/moderation` | admin app (`admin.html`) | admin | Moderering |
+| `/admin/messages/delivery` | admin app (`admin.html`) | admin | Levering |
+| `/admin/messages/settings` | admin app (`admin.html`) | admin | Kanaler og regler |
 | `/admin/data` | admin app (`admin.html`) | admin | Katalog |
 | `/admin/data/explore` | admin app (`admin.html`) | admin | Udforsk |
 | `/admin/data/connect` | admin app (`admin.html`) | admin | Forbind API |
 | `/admin/data/tools` | admin app (`admin.html`) | admin | MCP-værktøjer |
+| `/admin/data/store` | admin app (`admin.html`) | admin | Datalager |
+| `/admin/data/store/:id` | admin app (`admin.html`) | admin | Samling i datalageret |
+| `/admin/data/transfer` | admin app (`admin.html`) | admin | Eksport og import |
 | `/admin/data/:id` | admin app (`admin.html`) | admin | Datasæt |
 | `/admin/gdpr` | admin app (`admin.html`) | admin | GDPR-forespørgsler |
 | `/admin/access` | admin app (`admin.html`) | admin | Adgangsanmodninger |
@@ -159,11 +243,17 @@ They share the same login (session cookie), the same database and the same API.
 | `/admin/consent` | admin app (`admin.html`) | admin | Samtykke og cookies |
 | `/admin/settings` | admin app (`admin.html`) | admin | Indstillinger |
 | `/m` | app (`index.html`) | logged in | Hjem · own chrome |
+| `/m/mapper` | app (`index.html`) | logged in | Mapper (feature `mapper`) · own chrome |
 | `/m/klip` | app (`index.html`) | logged in | Klip · own chrome |
 | `/m/chat` | app (`index.html`) | logged in | AI · own chrome |
 | `/m/filer` | app (`index.html`) | logged in | Filer · own chrome |
+| `/m/beskeder` | app (`index.html`) | logged in | Beskeder (feature `beskeder`) · own chrome |
+| `/m/beskeder/:id` | app (`index.html`) | logged in | Besked (feature `beskeder`) · own chrome |
+| `/m/samtaler` | app (`index.html`) | logged in | Samtaler (feature `samtaler`) · own chrome |
+| `/m/samtaler/:id` | app (`index.html`) | logged in | Samtale (feature `samtaler`) · own chrome |
 | `/m/profil` | app (`index.html`) | logged in | Profil · own chrome |
 | `/extension` | app (`index.html`) | logged in | Aktuel side · own chrome · embeddable |
+| `/extension/mapper` | app (`index.html`) | logged in | Mapper (feature `mapper`) · own chrome · embeddable |
 | `/extension/chat` | app (`index.html`) | logged in | AI · own chrome · embeddable |
 | `/extension/klip` | app (`index.html`) | logged in | Klip · own chrome · embeddable |
 | `/extension/meta` | app (`index.html`) | logged in | Tags · own chrome · embeddable |
@@ -178,6 +268,7 @@ They share the same login (session cookie), the same database and the same API.
 | `/api/{path}` | server | everyone | API · embeddable |
 | `/mcp` | server | OAuth bearer | MCP (appen) |
 | `/mcp/admin` | server | OAuth bearer | MCP (admin) |
+| `/mcp/{key}` | server | OAuth bearer | MCP (eget endpoint fra MCP Studio) |
 | `/.well-known/{name}` | server | everyone | OAuth-metadata |
 | `/health` | server | everyone | Sundhedstjek |
 

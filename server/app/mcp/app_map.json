@@ -98,12 +98,24 @@
       "title": "Udforsk",
       "anchors": []
     },
+    "/admin/data/store": {
+      "title": "Datalager",
+      "anchors": []
+    },
+    "/admin/data/store/:id": {
+      "title": "Samling i datalageret",
+      "anchors": []
+    },
     "/admin/data/tools": {
       "title": "MCP-værktøjer",
       "anchors": [
         "data-tool-new",
         "data-tools"
       ]
+    },
+    "/admin/data/transfer": {
+      "title": "Eksport og import",
+      "anchors": []
     },
     "/admin/features": {
       "title": "Features og ringe",
@@ -131,6 +143,10 @@
     },
     "/admin/go": {
       "title": "Deep link",
+      "anchors": []
+    },
+    "/admin/groups": {
+      "title": "Grupper",
       "anchors": []
     },
     "/admin/heatmaps": {
@@ -163,6 +179,14 @@
     },
     "/admin/knowledge/spaces/:id": {
       "title": "Vidensrum",
+      "anchors": []
+    },
+    "/admin/login-providers": {
+      "title": "Login-udbydere",
+      "anchors": []
+    },
+    "/admin/login-providers/:key": {
+      "title": "Login-udbyder",
       "anchors": []
     },
     "/admin/logs/audit": {
@@ -202,6 +226,30 @@
         "mcp-drafts"
       ]
     },
+    "/admin/messages": {
+      "title": "Beskeder",
+      "anchors": []
+    },
+    "/admin/messages/delivery": {
+      "title": "Levering",
+      "anchors": []
+    },
+    "/admin/messages/moderation": {
+      "title": "Moderering",
+      "anchors": []
+    },
+    "/admin/messages/replies": {
+      "title": "Svar",
+      "anchors": []
+    },
+    "/admin/messages/send": {
+      "title": "Send besked",
+      "anchors": []
+    },
+    "/admin/messages/settings": {
+      "title": "Kanaler og regler",
+      "anchors": []
+    },
     "/admin/meta": {
       "title": "Træstrukturer",
       "anchors": []
@@ -234,11 +282,20 @@
       "title": "Sletning af logdata",
       "anchors": []
     },
+    "/admin/secrets": {
+      "title": "Hemmeligheder",
+      "anchors": []
+    },
+    "/admin/secrets/:id": {
+      "title": "Hemmelighed",
+      "anchors": []
+    },
     "/admin/settings": {
       "title": "Indstillinger",
       "anchors": [
         "setting-app_name",
         "setting-gdpr_email",
+        "setting-signup",
         "setting-sms_sender"
       ]
     },
@@ -266,13 +323,216 @@
       "title": "Webhooks",
       "anchors": []
     },
-    "/develop": {
-      "title": "Udvikling",
+    "/beskeder": {
+      "title": "Beskeder",
+      "anchors": []
+    },
+    "/beskeder/:id": {
+      "title": "Besked",
+      "anchors": []
+    },
+    "/developer": {
+      "title": "Developer",
+      "anchors": [
+        "developer-api-sources",
+        "developer-mcp-endpoints",
+        "developer-{x}"
+      ]
+    },
+    "/developer/actions": {
+      "title": "Flows",
+      "anchors": []
+    },
+    "/developer/actions/:id": {
+      "title": "Flow",
+      "anchors": []
+    },
+    "/developer/actions/koersler": {
+      "title": "Kørsler",
+      "anchors": []
+    },
+    "/developer/actions/koersler/:id": {
+      "title": "Kørsel",
+      "anchors": []
+    },
+    "/developer/actions/ny": {
+      "title": "Nyt flow",
+      "anchors": []
+    },
+    "/developer/api": {
+      "title": "API'er",
+      "anchors": []
+    },
+    "/developer/api/:id": {
+      "title": "API",
+      "anchors": []
+    },
+    "/developer/api/dokumentation": {
+      "title": "API-dokumentation",
+      "anchors": []
+    },
+    "/developer/api/drift": {
+      "title": "API-overvågning",
+      "anchors": []
+    },
+    "/developer/api/konsol": {
+      "title": "Testkonsol",
+      "anchors": []
+    },
+    "/developer/api/noegler": {
+      "title": "API-nøgler",
+      "anchors": []
+    },
+    "/developer/artefakter/:id": {
+      "title": "Artefakt",
+      "anchors": []
+    },
+    "/developer/datastudie": {
+      "title": "Endpoints i Datastudie",
+      "anchors": []
+    },
+    "/developer/datastudie/endpoints/:id": {
+      "title": "Endpoint",
+      "anchors": []
+    },
+    "/developer/datastudie/multisource": {
+      "title": "Multisource-kilder",
+      "anchors": []
+    },
+    "/developer/datastudie/multisource/:id": {
+      "title": "Multisource-kilde",
+      "anchors": []
+    },
+    "/developer/datastudie/ny": {
+      "title": "Nyt endpoint",
+      "anchors": []
+    },
+    "/developer/datastudie/operationer": {
+      "title": "Operationer",
+      "anchors": []
+    },
+    "/developer/datastudie/operationer/:id": {
+      "title": "Operation",
+      "anchors": []
+    },
+    "/developer/eksport": {
+      "title": "Eksport og import",
+      "anchors": []
+    },
+    "/developer/forbindelser": {
+      "title": "Dataforbindelser",
+      "anchors": []
+    },
+    "/developer/forbindelser/:id": {
+      "title": "Forbindelse",
+      "anchors": []
+    },
+    "/developer/forbindelser/cache": {
+      "title": "Cache",
+      "anchors": []
+    },
+    "/developer/godkendelser": {
+      "title": "Venter på mig",
+      "anchors": []
+    },
+    "/developer/godkendelser/:id": {
+      "title": "Godkendelse",
+      "anchors": []
+    },
+    "/developer/godkendelser/historik": {
+      "title": "Godkendelseshistorik",
+      "anchors": []
+    },
+    "/developer/hjaelp": {
+      "title": "Om Developer",
+      "anchors": []
+    },
+    "/developer/katalog": {
+      "title": "Datakatalog",
+      "anchors": []
+    },
+    "/developer/katalog/:id": {
+      "title": "Datasæt",
+      "anchors": []
+    },
+    "/developer/katalog/lineage": {
+      "title": "Lineage",
+      "anchors": []
+    },
+    "/developer/mcp": {
+      "title": "MCP-studie",
+      "anchors": []
+    },
+    "/developer/mcp/drift": {
+      "title": "MCP-overvågning",
+      "anchors": []
+    },
+    "/developer/mcp/eksterne": {
+      "title": "Eksterne MCP-servere",
+      "anchors": []
+    },
+    "/developer/mcp/klienter": {
+      "title": "Forbundne klienter",
+      "anchors": []
+    },
+    "/developer/mcp/testbaenk": {
+      "title": "Testbænk",
+      "anchors": []
+    },
+    "/developer/pipeline": {
+      "title": "Pipelines",
+      "anchors": []
+    },
+    "/developer/pipeline/:id": {
+      "title": "Pipeline-editor",
+      "anchors": []
+    },
+    "/developer/pipeline/koersler": {
+      "title": "Kørsler",
+      "anchors": []
+    },
+    "/developer/pipeline/koersler/:id": {
+      "title": "Kørsel",
+      "anchors": []
+    },
+    "/developer/pipeline/ny": {
+      "title": "Ny pipeline",
+      "anchors": []
+    },
+    "/developer/pipeline/planer": {
+      "title": "Planer",
+      "anchors": []
+    },
+    "/developer/pipeline/snapshots": {
+      "title": "Snapshots",
+      "anchors": []
+    },
+    "/developer/prompts": {
+      "title": "Promptkatalog",
       "anchors": [
         "prompt-{x}"
       ]
     },
-    "/develop/trae": {
+    "/developer/studio": {
+      "title": "Studio",
+      "anchors": []
+    },
+    "/developer/studio/api": {
+      "title": "API Studio",
+      "anchors": [
+        "api-studio-editor"
+      ]
+    },
+    "/developer/studio/mcp": {
+      "title": "MCP Studio",
+      "anchors": [
+        "mcp-studio-connect",
+        "mcp-studio-editor",
+        "mcp-studio-tools",
+        "mcp-studio-try"
+      ]
+    },
+    "/developer/trae": {
       "title": "Træstrukturer",
       "anchors": []
     },
@@ -304,6 +564,10 @@
       "title": "Log ind i udvidelsen",
       "anchors": []
     },
+    "/extension/mapper": {
+      "title": "Mapper",
+      "anchors": []
+    },
     "/extension/meta": {
       "title": "Tags",
       "anchors": []
@@ -329,6 +593,10 @@
       "anchors": [
         "file-row-{x}"
       ]
+    },
+    "/flow-godkendelse/:token": {
+      "title": "Godkend i flow",
+      "anchors": []
     },
     "/forbind": {
       "title": "Forbind MCP-klient",
@@ -365,6 +633,7 @@
       "title": "Konto",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -388,6 +657,14 @@
       "title": "Hjem",
       "anchors": []
     },
+    "/m/beskeder": {
+      "title": "Beskeder",
+      "anchors": []
+    },
+    "/m/beskeder/:id": {
+      "title": "Besked",
+      "anchors": []
+    },
     "/m/chat": {
       "title": "AI",
       "anchors": [
@@ -408,10 +685,15 @@
       "title": "Log ind på mobil",
       "anchors": []
     },
+    "/m/mapper": {
+      "title": "Mapper",
+      "anchors": []
+    },
     "/m/profil": {
       "title": "Profil",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -419,6 +701,14 @@
         "account-sessions",
         "mcp-access"
       ]
+    },
+    "/m/samtaler": {
+      "title": "Samtaler",
+      "anchors": []
+    },
+    "/m/samtaler/:id": {
+      "title": "Samtale",
+      "anchors": []
     },
     "/office-addin": {
       "title": "Office-router",
@@ -430,10 +720,19 @@
         "privacy-export"
       ]
     },
+    "/samtaler": {
+      "title": "Samtaler",
+      "anchors": []
+    },
+    "/samtaler/:id": {
+      "title": "Samtale",
+      "anchors": []
+    },
     "/user": {
       "title": "Mit område",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -452,6 +751,7 @@
       "title": "Delt område",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -470,6 +770,7 @@
       "title": "Mail",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -491,6 +792,7 @@
       "title": "Deling",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -509,6 +811,7 @@
       "title": "Indstillinger",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
@@ -527,6 +830,7 @@
       "title": "Mail",
       "anchors": [
         "account-ai-usage",
+        "account-linked-logins",
         "account-mcp",
         "account-profile",
         "account-ring",
